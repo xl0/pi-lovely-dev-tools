@@ -12,12 +12,13 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 
 The extension registers `/run-tool`.
 
-`/run-tool [tool_name]` waits for idle, lets the user pick a tool when no exact name is provided, builds tool arguments from the selected tool's TypeBox/JSON-schema parameters via TUI prompts, prompts for a text tool response, asks whether the result is an error, then appends one displayed custom message (`lovely-dev-tools.run-tool`).
+`/run-tool [tool_name]` waits for idle, lets the user pick a tool when no exact name is provided, edits tool arguments in a SettingsList-style TUI, executes the tool, then appends two displayed custom messages:
 
-Schema-to-TUI argument mapping supports object properties (including nested object properties), required/optional fields, string/number/integer/boolean scalars, `enum`/`const`/literal-union selection, defaults as placeholders, and JSON input fallback for arrays/complex values.
+1. `lovely-dev-tools.run-tool.call`: rendered tool call with arguments
+2. `lovely-dev-tools.run-tool.result`: rendered tool result or thrown error
 
-A custom message renderer shows the stored fixture in the TUI. The `context` hook projects each fixture into three LLM-context messages, preserving valid tool-call adjacency:
+The `context` hook filters both custom message types out, so run-tool history is visible in the TUI but not sent to the LLM.
 
-1. user instruction to use the selected tool with the provided arguments
-2. assistant message containing a `toolCall` block
-3. `toolResult` message for that call
+Schema-to-TUI argument mapping supports object properties (including nested object properties shown with indentation), required/optional fields, string/number/integer/boolean scalars, `enum`/`const`/literal-union selection, defaults as initial values, and JSON input fallback for arrays/complex values.
+
+Tool execution currently uses exported built-in tool definitions (`bash`, `edit`, `find`, `grep`, `ls`, `read`, `write`). Pi's public extension API exposes schemas for extension tools but not executable definitions, so third-party extension tools cannot be executed here yet.

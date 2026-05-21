@@ -1,39 +1,59 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent"
-import { Box, Text } from "@earendil-works/pi-tui"
+import {
+	type AgentToolResult,
+	createBashToolDefinition,
+	createEditToolDefinition,
+	createFindToolDefinition,
+	createGrepToolDefinition,
+	createLsToolDefinition,
+	createReadToolDefinition,
+	createWriteToolDefinition,
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	ExtensionInputComponent,
+	getSettingsListTheme
+} from "@earendil-works/pi-coding-agent"
+import { Box, Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui"
 
-const RUN_TOOL_MESSAGE_TYPE = "lovely-dev-tools.run-tool"
-const CANCEL = Symbol("cancel")
+const RUN_TOOL_CALL_MESSAGE_TYPE = "lovely-dev-tools.run-tool.call"
+const RUN_TOOL_RESULT_MESSAGE_TYPE = "lovely-dev-tools.run-tool.result"
 const OMIT = Symbol("omit")
+const OMIT_LABEL = "<omit>"
 
 type ToolInfo = ReturnType<ExtensionAPI["getAllTools"]>[number]
-type Schema = Record<string, unknown>
-type PromptValue = unknown | typeof CANCEL | typeof OMIT
+type Schema = Record<string, unknown> & {
+	enum?: unknown
+	anyOf?: unknown
+	oneOf?: unknown
+	const?: unknown
+	items?: unknown
+	type?: unknown
+	description?: unknown
+	default?: unknown
+	properties?: unknown
+	required?: unknown
+}
+type ArgValue = unknown | typeof OMIT
 
-type RunToolDetails = {
+type RunToolCallDetails = {
 	toolName: string
 	toolArgs: Record<string, unknown>
-	responseText: string
-	isError: boolean
 	toolCallId: string
 	timestamp: number
-	api: string
-	provider: string
-	model: string
 }
 
-const emptyUsage = {
-	input: 0,
-	output: 0,
-	cacheRead: 0,
-	cacheWrite: 0,
-	totalTokens: 0,
-	cost: {
-		input: 0,
-		output: 0,
-		cacheRead: 0,
-		cacheWrite: 0,
-		total: 0
-	}
+type RunToolResultDetails = {
+	toolName: string
+	toolCallId: string
+	result: AgentToolResult<unknown>
+	isError: boolean
+	timestamp: number
+}
+
+type ArgField = {
+	path: string[]
+	label: string
+	schema: Schema | undefined
+	required: boolean
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -52,27 +72,27 @@ function parseJsonValue(value: string): unknown | undefined {
 	}
 }
 
-function isRunToolDetails(value: unknown): value is RunToolDetails {
+function isRunToolCallDetails(value: unknown): value is RunToolCallDetails {
 	if (!isRecord(value)) return false
-	const details = value as Partial<RunToolDetails>
+	const details = value as Partial<RunToolCallDetails>
 	return (
 		typeof details.toolName === "string" &&
 		isRecord(details.toolArgs) &&
-		typeof details.responseText === "string" &&
-		typeof details.isError === "boolean" &&
 		typeof details.toolCallId === "string" &&
-		typeof details.timestamp === "number" &&
-		typeof details.api === "string" &&
-		typeof details.provider === "string" &&
-		typeof details.model === "string"
+		typeof details.timestamp === "number"
 	)
 }
 
-function getRunToolDetails(message: unknown): RunToolDetails | undefined {
-	if (!isRecord(message)) return undefined
-	const candidate = message as { role?: unknown; customType?: unknown; details?: unknown }
-	if (candidate.role !== "custom" || candidate.customType !== RUN_TOOL_MESSAGE_TYPE) return undefined
-	return isRunToolDetails(candidate.details) ? candidate.details : undefined
+function isRunToolResultDetails(value: unknown): value is RunToolResultDetails {
+	if (!isRecord(value)) return false
+	const details = value as Partial<RunToolResultDetails>
+	return (
+		typeof details.toolName === "string" &&
+		typeof details.toolCallId === "string" &&
+		isRecord(details.result) &&
+		typeof details.isError === "boolean" &&
+		typeof details.timestamp === "number"
+	)
 }
 
 function toolLabel(tool: ToolInfo, activeTools: Set<string>) {
@@ -89,188 +109,242 @@ function schemaArray(value: unknown): Schema[] | undefined {
 }
 
 function schemaEnum(schema: Schema): unknown[] | undefined {
-	const ownEnum = Array.isArray(schema["enum"]) ? schema["enum"] : undefined
+	const ownEnum = Array.isArray(schema.enum) ? schema.enum : undefined
 	if (ownEnum) return ownEnum
-	const variants = schemaArray(schema["anyOf"]) ?? schemaArray(schema["oneOf"])
-	const values = variants?.map(variant => variant["const"])
+	const variants = schemaArray(schema.anyOf) ?? schemaArray(schema.oneOf)
+	const values = variants?.map(variant => variant.const)
 	return values?.every(value => value !== undefined) ? values : undefined
 }
 
 function schemaType(schema: Schema | undefined): string {
 	if (!schema) return "any"
-	if ("const" in schema) return JSON.stringify(schema["const"])
+	if ("const" in schema) return JSON.stringify(schema.const)
 	const enumValues = schemaEnum(schema)
 	if (enumValues) return enumValues.map(value => JSON.stringify(value)).join(" | ")
-	const variants = schemaArray(schema["anyOf"]) ?? schemaArray(schema["oneOf"])
+	const variants = schemaArray(schema.anyOf) ?? schemaArray(schema.oneOf)
 	if (variants) return variants.map(schemaType).join(" | ")
-	const items = asSchema(schema["items"])
+	const items = asSchema(schema.items)
 	if (items) return `${schemaType(items)}[]`
-	const type = schema["type"]
+	const type = schema.type
 	if (Array.isArray(type)) return type.join(" | ")
 	return typeof type === "string" ? type : "any"
 }
 
 function schemaDescription(schema: Schema | undefined) {
-	return typeof schema?.["description"] === "string" ? schema["description"] : undefined
+	return typeof schema?.description === "string" ? schema.description : undefined
 }
 
-function schemaDefaultPlaceholder(schema: Schema | undefined, fallback: string) {
-	return schema && "default" in schema ? JSON.stringify(schema["default"]) : fallback
+function schemaDefault(schema: Schema | undefined): ArgValue {
+	if (!schema) return OMIT
+	if ("default" in schema) return schema.default
+	if ("const" in schema) return schema.const
+	return OMIT
 }
 
-function coerceScalarFromJson(value: string, schema: Schema | undefined): unknown | typeof CANCEL {
-	const parsed = parseJsonValue(value)
-	if (parsed === undefined) return CANCEL
-	const type = schema?.["type"]
-	if (type === "array" && !Array.isArray(parsed)) return CANCEL
-	if (type === "object" && !isRecord(parsed)) return CANCEL
+function valueLabel(value: ArgValue) {
+	return value === OMIT ? OMIT_LABEL : JSON.stringify(value)
+}
+
+function coerceValue(text: string, schema: Schema | undefined): ArgValue | undefined {
+	const type = schema?.type
+	if (type === "string") return text
+	if (type === "number" || type === "integer") {
+		const value = Number(text.trim())
+		if (!Number.isFinite(value) || (type === "integer" && !Number.isInteger(value))) return undefined
+		return value
+	}
+	const parsed = parseJsonValue(text.trim() || "null")
+	if (parsed === undefined) return undefined
+	if (type === "array" && !Array.isArray(parsed)) return undefined
+	if (type === "object" && !isRecord(parsed)) return undefined
 	return parsed
 }
 
-async function promptValue(
-	ctx: ExtensionCommandContext,
-	name: string,
-	schema: Schema | undefined,
-	required: boolean
-): Promise<PromptValue> {
-	if (schema && "const" in schema) return schema["const"]
-
-	const description = schemaDescription(schema)
-	const title = `${name} (${required ? "required" : "optional"}, ${schemaType(schema)})${description ? `: ${description}` : ""}`
-	if (!required) {
-		const action = await ctx.ui.select(title, ["omit", "set"])
-		if (action === undefined) return CANCEL
-		if (action === "omit") return OMIT
-	}
-
-	const enumValues = schema ? schemaEnum(schema) : undefined
-	if (enumValues) {
-		const labels = enumValues.map(value => JSON.stringify(value))
-		const selected = await ctx.ui.select(title, labels)
-		if (selected === undefined) return CANCEL
-		return enumValues[labels.indexOf(selected)]
-	}
-
-	const type = schema?.["type"]
-	if (type === "boolean") {
-		const selected = await ctx.ui.select(title, ["true", "false"])
-		if (selected === undefined) return CANCEL
-		return selected === "true"
-	}
-
-	if (type === "number" || type === "integer") {
-		const text = await ctx.ui.input(title, schemaDefaultPlaceholder(schema, "0"))
-		if (text === undefined) return CANCEL
-		const value = Number(text.trim())
-		if (!Number.isFinite(value) || (type === "integer" && !Number.isInteger(value))) {
-			ctx.ui.notify(`${name} must be a ${type}.`, "error")
-			return CANCEL
+function flattenFields(schema: Schema | undefined, path: string[] = [], depth = 0): ArgField[] {
+	const properties = schema ? asSchema(schema.properties) : undefined
+	if (!properties) return []
+	const required = new Set(schemaStringArray(schema?.required) ?? [])
+	const fields: ArgField[] = []
+	for (const [name, rawSchema] of Object.entries(properties)) {
+		const propertySchema = asSchema(rawSchema)
+		const propertyPath = [...path, name]
+		const nested = propertySchema?.type === "object" && asSchema(propertySchema.properties)
+		if (nested) {
+			fields.push(...flattenFields(propertySchema, propertyPath, depth + 1))
+			continue
 		}
-		return value
+		fields.push({
+			path: propertyPath,
+			label: `${"  ".repeat(depth)}${name}`,
+			schema: propertySchema,
+			required: required.has(name)
+		})
 	}
-
-	if (type === "string") {
-		const text = await ctx.ui.input(title, schemaDefaultPlaceholder(schema, ""))
-		return text === undefined ? CANCEL : text
-	}
-
-	const objectProperties = schema ? asSchema(schema["properties"]) : undefined
-	if (type === "object" && objectProperties) return promptObject(ctx, objectProperties, schema, `${name}.`)
-
-	const text = await ctx.ui.input(title, schemaDefaultPlaceholder(schema, type === "array" ? "[]" : type === "object" ? "{}" : "null"))
-	if (text === undefined) return CANCEL
-	const value = coerceScalarFromJson(text.trim() || "null", schema)
-	if (value === CANCEL) ctx.ui.notify(`${name} must be valid JSON matching ${schemaType(schema)}.`, "error")
-	return value
+	return fields
 }
 
-async function promptObject(
-	ctx: ExtensionCommandContext,
-	properties: Record<string, unknown>,
-	schema: Schema | undefined,
-	prefix = ""
-): Promise<Record<string, unknown> | typeof CANCEL> {
-	const required = new Set(schemaStringArray(schema?.["required"]) ?? [])
+function setNested(target: Record<string, unknown>, path: string[], value: unknown) {
+	let current = target
+	for (const key of path.slice(0, -1)) {
+		const next = current[key]
+		if (isRecord(next)) current = next
+		else {
+			const created: Record<string, unknown> = {}
+			current[key] = created
+			current = created
+		}
+	}
+	const last = path.at(-1)
+	if (last) current[last] = value
+}
+
+function buildArgs(fields: ArgField[], values: Map<string, ArgValue>) {
 	const args: Record<string, unknown> = {}
-	for (const [name, rawSchema] of Object.entries(properties)) {
-		const value = await promptValue(ctx, `${prefix}${name}`, asSchema(rawSchema), required.has(name))
-		if (value === CANCEL) return CANCEL
-		if (value !== OMIT) args[name] = value
+	for (const field of fields) {
+		const value = values.get(field.path.join("."))
+		if (value !== undefined && value !== OMIT) setNested(args, field.path, value)
 	}
 	return args
 }
 
-async function promptToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo): Promise<Record<string, unknown> | undefined> {
+type ExecutableTool = {
+	execute(
+		toolCallId: string,
+		params: Record<string, unknown>,
+		signal: AbortSignal | undefined,
+		onUpdate: undefined,
+		ctx: ExtensionCommandContext
+	): Promise<AgentToolResult<unknown>>
+}
+
+function getExecutableToolDefinition(name: string, cwd: string): ExecutableTool | undefined {
+	switch (name) {
+		case "bash":
+			return createBashToolDefinition(cwd) as unknown as ExecutableTool
+		case "edit":
+			return createEditToolDefinition(cwd) as unknown as ExecutableTool
+		case "find":
+			return createFindToolDefinition(cwd) as unknown as ExecutableTool
+		case "grep":
+			return createGrepToolDefinition(cwd) as unknown as ExecutableTool
+		case "ls":
+			return createLsToolDefinition(cwd) as unknown as ExecutableTool
+		case "read":
+			return createReadToolDefinition(cwd) as unknown as ExecutableTool
+		case "write":
+			return createWriteToolDefinition(cwd) as unknown as ExecutableTool
+		default:
+			return undefined
+	}
+}
+
+async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo): Promise<Record<string, unknown> | undefined> {
 	const parameters = asSchema(tool.parameters)
-	const properties = parameters ? asSchema(parameters["properties"]) : undefined
-	if (!properties || Object.keys(properties).length === 0) return {}
+	const fields = flattenFields(parameters)
+	if (fields.length === 0) return {}
 
-	const args = await promptObject(ctx, properties, parameters)
-	return args === CANCEL ? undefined : args
-}
+	const values = new Map<string, ArgValue>()
+	for (const field of fields) values.set(field.path.join("."), field.required ? schemaDefault(field.schema) : OMIT)
 
-function runToolInstruction(details: RunToolDetails) {
-	return `Use the ${details.toolName} tool with these arguments:\n\n${JSON.stringify(details.toolArgs, null, 2)}`
-}
-
-function projectRunTool(details: RunToolDetails) {
-	return [
-		{
-			role: "user" as const,
-			content: [{ type: "text" as const, text: runToolInstruction(details) }],
-			timestamp: details.timestamp
-		},
-		{
-			role: "assistant" as const,
-			content: [
-				{
-					type: "toolCall" as const,
-					id: details.toolCallId,
-					name: details.toolName,
-					arguments: details.toolArgs
+	return ctx.ui.custom<Record<string, unknown> | undefined>((_tui, theme, _keybindings, done) => {
+		let list: SettingsList
+		const items: SettingItem[] = fields.map(field => {
+			const id = field.path.join(".")
+			const enumValues = field.schema ? schemaEnum(field.schema) : undefined
+			const type = field.schema?.type
+			const choices = enumValues?.map(value => JSON.stringify(value)) ?? (type === "boolean" ? ["true", "false"] : undefined)
+			const item: SettingItem = {
+				id,
+				label: field.label,
+				description: `${field.required ? "required" : "optional"} ${schemaType(field.schema)}${schemaDescription(field.schema) ? ` - ${schemaDescription(field.schema)}` : ""}`,
+				currentValue: valueLabel(values.get(id) ?? OMIT)
+			}
+			if (choices) item.values = field.required ? choices : [OMIT_LABEL, ...choices]
+			else {
+				item.submenu = (currentValue, submenuDone) =>
+					new ExtensionInputComponent(
+						`Value for ${id} (${schemaType(field.schema)})`,
+						currentValue === OMIT_LABEL ? "" : currentValue,
+						value => {
+							if (!field.required && value.trim() === OMIT_LABEL) {
+								submenuDone(OMIT_LABEL)
+								return
+							}
+							const coerced = coerceValue(value, field.schema)
+							if (coerced === undefined) {
+								ctx.ui.notify(`${id} must match ${schemaType(field.schema)}.`, "error")
+								submenuDone(undefined)
+								return
+							}
+							submenuDone(valueLabel(coerced))
+						},
+						() => submenuDone(undefined),
+						{ tui: _tui }
+					)
+			}
+			return item
+		})
+		const container = new Container()
+		container.addChild(new Text(theme.fg("accent", theme.bold(`Arguments for ${tool.name}`)), 1, 1))
+		container.addChild(new Text(theme.fg("dim", "Edit values. Escape when done. Optional fields can be <omit>."), 1, 0))
+		list = new SettingsList(
+			items,
+			Math.min(items.length, 14),
+			getSettingsListTheme(),
+			(id, newValue) => {
+				const field = fields.find(field => field.path.join(".") === id)
+				if (!field) return
+				if (newValue === OMIT_LABEL) values.set(id, OMIT)
+				else if (field.schema?.type === "boolean") values.set(id, newValue === "true")
+				else {
+					const parsed = parseJsonValue(newValue)
+					values.set(id, parsed === undefined ? newValue : parsed)
 				}
-			],
-			api: details.api,
-			provider: details.provider,
-			model: details.model,
-			usage: emptyUsage,
-			stopReason: "toolUse" as const,
-			timestamp: details.timestamp
-		},
-		{
-			role: "toolResult" as const,
-			toolCallId: details.toolCallId,
-			toolName: details.toolName,
-			content: [{ type: "text" as const, text: details.responseText }],
-			isError: details.isError,
-			timestamp: details.timestamp
+				list.updateValue(id, valueLabel(values.get(id) ?? OMIT))
+			},
+			() => done(buildArgs(fields, values)),
+			{ enableSearch: true }
+		)
+		container.addChild(list)
+		return {
+			render: (width: number) => container.render(width),
+			invalidate: () => container.invalidate(),
+			handleInput: (data: string) => list.handleInput(data)
 		}
-	]
+	})
+}
+
+function resultText(result: AgentToolResult<unknown>) {
+	return result.content.map(part => (part.type === "text" ? part.text : `[${part.type}]`)).join("\n")
 }
 
 export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
-	pi.registerMessageRenderer(RUN_TOOL_MESSAGE_TYPE, (message, _state, theme) => {
-		const details = isRunToolDetails(message.details) ? message.details : undefined
-		const title = details ? `Synthetic tool run: ${details.toolName}${details.isError ? " (error)" : ""}` : "Synthetic tool run"
-		const body = details
-			? `${title}\n\nArguments:\n${JSON.stringify(details.toolArgs, null, 2)}\n\nResponse:\n${details.responseText}`
-			: typeof message.content === "string"
-				? message.content
-				: title
+	pi.registerMessageRenderer(RUN_TOOL_CALL_MESSAGE_TYPE, (message, _state, theme) => {
+		const details = isRunToolCallDetails(message.details) ? message.details : undefined
+		const body = details ? `Tool call: ${details.toolName}\n\n${JSON.stringify(details.toolArgs, null, 2)}` : "Tool call"
 		const box = new Box(1, 1, value => theme.bg("customMessageBg", value))
 		box.addChild(new Text(body, 0, 0))
 		return box
 	})
 
+	pi.registerMessageRenderer(RUN_TOOL_RESULT_MESSAGE_TYPE, (message, _state, theme) => {
+		const details = isRunToolResultDetails(message.details) ? message.details : undefined
+		const title = details ? `Tool result: ${details.toolName}${details.isError ? " (error)" : ""}` : "Tool result"
+		const body = details ? `${title}\n\n${resultText(details.result)}` : title
+		const box = new Box(1, 1, value => theme.bg(details?.isError ? "toolErrorBg" : "toolSuccessBg", value))
+		box.addChild(new Text(body, 0, 0))
+		return box
+	})
+
 	pi.on("context", event => ({
-		messages: event.messages.flatMap(message => {
-			const details = getRunToolDetails(message)
-			return details ? projectRunTool(details) : [message]
+		messages: event.messages.filter(message => {
+			if (!isRecord(message) || message.role !== "custom") return true
+			return message.customType !== RUN_TOOL_CALL_MESSAGE_TYPE && message.customType !== RUN_TOOL_RESULT_MESSAGE_TYPE
 		})
 	}))
 
 	pi.registerCommand("run-tool", {
-		description: "Inject a synthetic tool call and tool result into chat history",
+		description: "Run a tool from TUI-provided arguments and store rendered call/result messages",
 		async handler(args, ctx) {
 			if (!ctx.hasUI) {
 				ctx.ui.notify("/run-tool needs interactive UI.", "warning")
@@ -291,35 +365,39 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 			const selectedTool = initialTool ?? byLabel.get((await ctx.ui.select("Tool:", [...byLabel.keys()])) ?? "")
 			if (!selectedTool) return
 
-			const toolArgs = await promptToolArgs(ctx, selectedTool)
+			const definition = getExecutableToolDefinition(selectedTool.name, ctx.cwd)
+			if (!definition) {
+				ctx.ui.notify(`Cannot execute ${selectedTool.name}: pi does not expose executable definitions for extension tools yet.`, "error")
+				return
+			}
+
+			const toolArgs = await editToolArgs(ctx, selectedTool)
 			if (!toolArgs) return
 
-			const responseText = await ctx.ui.input("Tool response text:", "")
-			if (responseText === undefined) return
-			const isError = await ctx.ui.confirm("Tool response status", "Mark this tool result as an error?")
-
 			const now = Date.now()
-			const model = ctx.model
-			const details: RunToolDetails = {
-				toolName: selectedTool.name,
-				toolArgs,
-				responseText,
-				isError,
-				toolCallId: `run_tool_${now}`,
-				timestamp: now,
-				api: model?.api ?? "synthetic",
-				provider: model?.provider ?? "synthetic",
-				model: model?.id ?? "synthetic"
+			const toolCallId = `run_tool_${now}`
+			pi.sendMessage({
+				customType: RUN_TOOL_CALL_MESSAGE_TYPE,
+				content: `Tool call: ${selectedTool.name}`,
+				display: true,
+				details: { toolName: selectedTool.name, toolArgs, toolCallId, timestamp: now } satisfies RunToolCallDetails
+			})
+
+			let result: AgentToolResult<unknown>
+			let isError = false
+			try {
+				result = await definition.execute(toolCallId, toolArgs, undefined, undefined, ctx)
+			} catch (error) {
+				isError = true
+				result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], details: undefined }
 			}
 
 			pi.sendMessage({
-				customType: RUN_TOOL_MESSAGE_TYPE,
-				content: runToolInstruction(details),
+				customType: RUN_TOOL_RESULT_MESSAGE_TYPE,
+				content: resultText(result),
 				display: true,
-				details
+				details: { toolName: selectedTool.name, toolCallId, result, isError, timestamp: Date.now() } satisfies RunToolResultDetails
 			})
-
-			ctx.ui.notify(`Injected ${selectedTool.name} tool call fixture.`, "info")
 		}
 	})
 }
