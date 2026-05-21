@@ -1,9 +1,13 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent"
 import { Box, Text } from "@earendil-works/pi-tui"
 
 const RUN_TOOL_MESSAGE_TYPE = "lovely-dev-tools.run-tool"
+const CANCEL = Symbol("cancel")
+const OMIT = Symbol("omit")
 
 type ToolInfo = ReturnType<ExtensionAPI["getAllTools"]>[number]
+type Schema = Record<string, unknown>
+type PromptValue = unknown | typeof CANCEL | typeof OMIT
 
 type RunToolDetails = {
 	toolName: string
@@ -36,14 +40,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
-function parseJsonObject(value: string): Record<string, unknown> | undefined {
+function asSchema(value: unknown): Schema | undefined {
+	return isRecord(value) ? value : undefined
+}
+
+function parseJsonValue(value: string): unknown | undefined {
 	try {
-		const parsed = JSON.parse(value)
-		if (isRecord(parsed)) return parsed
+		return JSON.parse(value)
 	} catch {
-		// handled by caller
+		return undefined
 	}
-	return undefined
 }
 
 function isRunToolDetails(value: unknown): value is RunToolDetails {
@@ -72,6 +78,135 @@ function getRunToolDetails(message: unknown): RunToolDetails | undefined {
 function toolLabel(tool: ToolInfo, activeTools: Set<string>) {
 	const active = activeTools.has(tool.name) ? "active" : "inactive"
 	return `${tool.name} (${active}) - ${tool.description}`
+}
+
+function schemaStringArray(value: unknown): string[] | undefined {
+	return Array.isArray(value) && value.every(item => typeof item === "string") ? value : undefined
+}
+
+function schemaArray(value: unknown): Schema[] | undefined {
+	return Array.isArray(value) && value.every(isRecord) ? (value as Schema[]) : undefined
+}
+
+function schemaEnum(schema: Schema): unknown[] | undefined {
+	const ownEnum = Array.isArray(schema["enum"]) ? schema["enum"] : undefined
+	if (ownEnum) return ownEnum
+	const variants = schemaArray(schema["anyOf"]) ?? schemaArray(schema["oneOf"])
+	const values = variants?.map(variant => variant["const"])
+	return values?.every(value => value !== undefined) ? values : undefined
+}
+
+function schemaType(schema: Schema | undefined): string {
+	if (!schema) return "any"
+	if ("const" in schema) return JSON.stringify(schema["const"])
+	const enumValues = schemaEnum(schema)
+	if (enumValues) return enumValues.map(value => JSON.stringify(value)).join(" | ")
+	const variants = schemaArray(schema["anyOf"]) ?? schemaArray(schema["oneOf"])
+	if (variants) return variants.map(schemaType).join(" | ")
+	const items = asSchema(schema["items"])
+	if (items) return `${schemaType(items)}[]`
+	const type = schema["type"]
+	if (Array.isArray(type)) return type.join(" | ")
+	return typeof type === "string" ? type : "any"
+}
+
+function schemaDescription(schema: Schema | undefined) {
+	return typeof schema?.["description"] === "string" ? schema["description"] : undefined
+}
+
+function schemaDefaultPlaceholder(schema: Schema | undefined, fallback: string) {
+	return schema && "default" in schema ? JSON.stringify(schema["default"]) : fallback
+}
+
+function coerceScalarFromJson(value: string, schema: Schema | undefined): unknown | typeof CANCEL {
+	const parsed = parseJsonValue(value)
+	if (parsed === undefined) return CANCEL
+	const type = schema?.["type"]
+	if (type === "array" && !Array.isArray(parsed)) return CANCEL
+	if (type === "object" && !isRecord(parsed)) return CANCEL
+	return parsed
+}
+
+async function promptValue(
+	ctx: ExtensionCommandContext,
+	name: string,
+	schema: Schema | undefined,
+	required: boolean
+): Promise<PromptValue> {
+	if (schema && "const" in schema) return schema["const"]
+
+	const description = schemaDescription(schema)
+	const title = `${name} (${required ? "required" : "optional"}, ${schemaType(schema)})${description ? `: ${description}` : ""}`
+	if (!required) {
+		const action = await ctx.ui.select(title, ["omit", "set"])
+		if (action === undefined) return CANCEL
+		if (action === "omit") return OMIT
+	}
+
+	const enumValues = schema ? schemaEnum(schema) : undefined
+	if (enumValues) {
+		const labels = enumValues.map(value => JSON.stringify(value))
+		const selected = await ctx.ui.select(title, labels)
+		if (selected === undefined) return CANCEL
+		return enumValues[labels.indexOf(selected)]
+	}
+
+	const type = schema?.["type"]
+	if (type === "boolean") {
+		const selected = await ctx.ui.select(title, ["true", "false"])
+		if (selected === undefined) return CANCEL
+		return selected === "true"
+	}
+
+	if (type === "number" || type === "integer") {
+		const text = await ctx.ui.input(title, schemaDefaultPlaceholder(schema, "0"))
+		if (text === undefined) return CANCEL
+		const value = Number(text.trim())
+		if (!Number.isFinite(value) || (type === "integer" && !Number.isInteger(value))) {
+			ctx.ui.notify(`${name} must be a ${type}.`, "error")
+			return CANCEL
+		}
+		return value
+	}
+
+	if (type === "string") {
+		const text = await ctx.ui.input(title, schemaDefaultPlaceholder(schema, ""))
+		return text === undefined ? CANCEL : text
+	}
+
+	const objectProperties = schema ? asSchema(schema["properties"]) : undefined
+	if (type === "object" && objectProperties) return promptObject(ctx, objectProperties, schema, `${name}.`)
+
+	const text = await ctx.ui.input(title, schemaDefaultPlaceholder(schema, type === "array" ? "[]" : type === "object" ? "{}" : "null"))
+	if (text === undefined) return CANCEL
+	const value = coerceScalarFromJson(text.trim() || "null", schema)
+	if (value === CANCEL) ctx.ui.notify(`${name} must be valid JSON matching ${schemaType(schema)}.`, "error")
+	return value
+}
+
+async function promptObject(
+	ctx: ExtensionCommandContext,
+	properties: Record<string, unknown>,
+	schema: Schema | undefined,
+	prefix = ""
+): Promise<Record<string, unknown> | typeof CANCEL> {
+	const required = new Set(schemaStringArray(schema?.["required"]) ?? [])
+	const args: Record<string, unknown> = {}
+	for (const [name, rawSchema] of Object.entries(properties)) {
+		const value = await promptValue(ctx, `${prefix}${name}`, asSchema(rawSchema), required.has(name))
+		if (value === CANCEL) return CANCEL
+		if (value !== OMIT) args[name] = value
+	}
+	return args
+}
+
+async function promptToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo): Promise<Record<string, unknown> | undefined> {
+	const parameters = asSchema(tool.parameters)
+	const properties = parameters ? asSchema(parameters["properties"]) : undefined
+	if (!properties || Object.keys(properties).length === 0) return {}
+
+	const args = await promptObject(ctx, properties, parameters)
+	return args === CANCEL ? undefined : args
 }
 
 function runToolInstruction(details: RunToolDetails) {
@@ -156,13 +291,8 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 			const selectedTool = initialTool ?? byLabel.get((await ctx.ui.select("Tool:", [...byLabel.keys()])) ?? "")
 			if (!selectedTool) return
 
-			const argsText = await ctx.ui.input(`Arguments for ${selectedTool.name} (JSON object):`, "{}")
-			if (argsText === undefined) return
-			const toolArgs = parseJsonObject(argsText.trim() || "{}")
-			if (!toolArgs) {
-				ctx.ui.notify("Tool arguments must be a JSON object.", "error")
-				return
-			}
+			const toolArgs = await promptToolArgs(ctx, selectedTool)
+			if (!toolArgs) return
 
 			const responseText = await ctx.ui.input("Tool response text:", "")
 			if (responseText === undefined) return

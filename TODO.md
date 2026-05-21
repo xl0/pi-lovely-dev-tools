@@ -4,6 +4,7 @@
 
 - [x] Create package template.
 - [x] Add `/run-tool` command for injecting synthetic tool calls/results into chat history.
+- [x] Map selected tool schemas to TUI argument prompts.
 
 ## Tasks
 
