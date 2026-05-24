@@ -12,12 +12,11 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 
 The extension registers `/run-tool`.
 
-`/run-tool [tool_name]` waits for idle, selects a tool (argument exact-matches by tool name, otherwise opens a selector), edits tool arguments in an inline TUI, executes the selected tool, then appends two displayed custom messages:
+`/run-tool [tool_name]` waits for idle, selects a tool (argument exact-matches by tool name, otherwise opens a selector), edits tool arguments in an inline TUI, executes the selected tool, then appends a single displayed custom message:
 
-1. `lovely-dev-tools.run-tool.call`: rendered call fixture with `toolName`, `toolArgs`, `toolCallId`, `timestamp`.
-2. `lovely-dev-tools.run-tool.result`: rendered execution result with `toolName`, `toolCallId`, `result`, `isError`, `timestamp`.
+- `lovely-dev-tools.run-tool`: combines call info and result in one message with `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, `timestamp`.
 
-The `context` hook removes both custom message types, so `/run-tool` history is visible in the TUI/session but never sent to the LLM.
+The `context` hook removes this custom message type, so `/run-tool` history is visible in the TUI/session but never sent to the LLM.
 
 ## Argument editor
 
@@ -39,10 +38,9 @@ The `context` hook removes both custom message types, so `/run-tool` history is 
 
 Tool execution uses command-context `ctx.getToolDefinition(name)` and calls `definition.execute(toolCallId, toolArgs, undefined, undefined, ctx)`. Thrown errors are captured into a text `AgentToolResult` and marked `isError: true`.
 
-Custom renderers use simple `Box` + `Text` output:
+A single message renderer for `lovely-dev-tools.run-tool` shows the tool name and raw result output with `Box` + `Text`:
 
-- call messages use `customMessageBg`
-- successful results use `toolSuccessBg`
-- error results use `toolErrorBg`
+- errors use `toolErrorBg`
+- success uses `toolSuccessBg`
 
 `resultText()` renders text content blocks directly and non-text blocks as `[type]` placeholders.

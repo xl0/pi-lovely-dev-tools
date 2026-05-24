@@ -6,8 +6,7 @@ import {
 } from "@earendil-works/pi-coding-agent"
 import { Box, getKeybindings, Input, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui"
 
-const RUN_TOOL_CALL_MESSAGE_TYPE = "lovely-dev-tools.run-tool.call"
-const RUN_TOOL_RESULT_MESSAGE_TYPE = "lovely-dev-tools.run-tool.result"
+const RUN_TOOL_MESSAGE_TYPE = "lovely-dev-tools.run-tool"
 const OMIT = Symbol("omit")
 const OMIT_LABEL = "<omit>"
 
@@ -26,15 +25,9 @@ type Schema = Record<string, unknown> & {
 }
 type ArgValue = unknown | typeof OMIT
 
-type RunToolCallDetails = {
+type RunToolDetails = {
 	toolName: string
 	toolArgs: Record<string, unknown>
-	toolCallId: string
-	timestamp: number
-}
-
-type RunToolResultDetails = {
-	toolName: string
 	toolCallId: string
 	result: AgentToolResult<unknown>
 	isError: boolean
@@ -64,22 +57,12 @@ function parseJsonValue(value: string): unknown | undefined {
 	}
 }
 
-function isRunToolCallDetails(value: unknown): value is RunToolCallDetails {
+function isRunToolDetails(value: unknown): value is RunToolDetails {
 	if (!isRecord(value)) return false
-	const details = value as Partial<RunToolCallDetails>
+	const details = value as Partial<RunToolDetails>
 	return (
 		typeof details.toolName === "string" &&
 		isRecord(details.toolArgs) &&
-		typeof details.toolCallId === "string" &&
-		typeof details.timestamp === "number"
-	)
-}
-
-function isRunToolResultDetails(value: unknown): value is RunToolResultDetails {
-	if (!isRecord(value)) return false
-	const details = value as Partial<RunToolResultDetails>
-	return (
-		typeof details.toolName === "string" &&
 		typeof details.toolCallId === "string" &&
 		isRecord(details.result) &&
 		typeof details.isError === "boolean" &&
@@ -377,24 +360,33 @@ async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo): Promi
 	})
 }
 
+function formatArgs(args: Record<string, unknown>) {
+	return Object.entries(args)
+		.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+		.join(", ")
+}
+
 function resultText(result: AgentToolResult<unknown>) {
-	return result.content.map(part => (part.type === "text" ? part.text : `[${part.type}]`)).join("\n")
+	return result.content.map(part => {
+		if (part.type === "text") return part.text
+		const image = part as { type: string; source?: { data?: string; media_type?: string } }
+		if (image.source) return `[${image.type}: ${image.source.media_type ?? "unknown"}]`
+		return `[${image.type}]`
+	}).join("\n")
 }
 
 export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
-	pi.registerMessageRenderer(RUN_TOOL_CALL_MESSAGE_TYPE, (message, _state, theme) => {
-		const details = isRunToolCallDetails(message.details) ? message.details : undefined
-		const body = details ? `${details.toolName}\n\n${JSON.stringify(details.toolArgs, null, 2)}` : "Tool call"
-		const box = new Box(1, 1, value => theme.bg("customMessageBg", value))
-		box.addChild(new Text(body, 0, 0))
-		return box
-	})
-
-	pi.registerMessageRenderer(RUN_TOOL_RESULT_MESSAGE_TYPE, (message, _state, theme) => {
-		const details = isRunToolResultDetails(message.details) ? message.details : undefined
-		const title = details ? `${details.toolName}${details.isError ? " (error)" : ""}` : ""
-		const body = details ? `${title}\n${resultText(details.result)}` : title
-		const box = new Box(1, 1, value => theme.bg(details?.isError ? "toolErrorBg" : "toolSuccessBg", value))
+	pi.registerMessageRenderer(RUN_TOOL_MESSAGE_TYPE, (message, _state, theme) => {
+		const details = isRunToolDetails(message.details) ? message.details : undefined
+		if (!details) {
+			const box = new Box(1, 1, value => theme.bg("customMessageBg", value))
+			box.addChild(new Text("Tool run", 0, 0))
+			return box
+		}
+		const callLine = theme.fg("toolTitle", theme.bold(`${details.toolName}(${formatArgs(details.toolArgs)})`))
+		const output = resultText(details.result)
+		const body = output ? `${callLine}\n${theme.fg("toolOutput", output)}` : callLine
+		const box = new Box(1, 1, value => theme.bg(details.isError ? "toolErrorBg" : "toolSuccessBg", value))
 		box.addChild(new Text(body, 0, 0))
 		return box
 	})
@@ -402,7 +394,7 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 	pi.on("context", event => ({
 		messages: event.messages.filter(message => {
 			if (!isRecord(message) || message.role !== "custom") return true
-			return message.customType !== RUN_TOOL_CALL_MESSAGE_TYPE && message.customType !== RUN_TOOL_RESULT_MESSAGE_TYPE
+			return message.customType !== RUN_TOOL_MESSAGE_TYPE
 		})
 	}))
 
@@ -446,12 +438,6 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 
 				const now = Date.now()
 				const toolCallId = `run_tool_${now}`
-				pi.sendMessage({
-					customType: RUN_TOOL_CALL_MESSAGE_TYPE,
-					content: `Tool call: ${selectedTool.name}`,
-					display: true,
-					details: { toolName: selectedTool.name, toolArgs, toolCallId, timestamp: now } satisfies RunToolCallDetails
-				})
 
 				let result: AgentToolResult<unknown>
 				let isError = false
@@ -463,10 +449,10 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 				}
 
 				pi.sendMessage({
-					customType: RUN_TOOL_RESULT_MESSAGE_TYPE,
+					customType: RUN_TOOL_MESSAGE_TYPE,
 					content: resultText(result),
 					display: true,
-					details: { toolName: selectedTool.name, toolCallId, result, isError, timestamp: Date.now() } satisfies RunToolResultDetails
+					details: { toolName: selectedTool.name, toolArgs, toolCallId, result, isError, timestamp: Date.now() } satisfies RunToolDetails
 				})
 				return
 			}
