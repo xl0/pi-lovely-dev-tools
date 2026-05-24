@@ -19,7 +19,7 @@
 
 ## Follow-ups
 
-- [ ] Improve argument editor finishing UX. Currently Escape accepts/done because SettingsList only has cancel semantics.
+- [x] Improve argument editor finishing UX. Scalar/JSON args edit directly while selected; Enter runs; Escape backs out to tool selection/cancel.
 - [ ] Add explicit validation before executing: required fields still `<omit>` should block with an error.
 - [ ] Improve array editing beyond raw JSON input.
 - [ ] Render image/non-text tool result blocks better than `[type]` placeholders.
