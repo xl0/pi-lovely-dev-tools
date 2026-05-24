@@ -4,6 +4,7 @@ import {
 	type ExtensionCommandContext,
 	getSettingsListTheme
 } from "@earendil-works/pi-coding-agent"
+import type { TUI } from "@earendil-works/pi-tui"
 import { Box, getKeybindings, Input, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui"
 
 const RUN_TOOL_MESSAGE_TYPE = "lovely-dev-tools.run-tool"
@@ -34,11 +35,20 @@ type RunToolDetails = {
 	timestamp: number
 }
 
-type ArgField = {
-	path: string[]
+type ArgPath = Array<string | number>
+type ArgRowKind = "field" | "object" | "array" | "item"
+type ArgRow = {
+	kind: ArgRowKind
+	path: ArgPath
 	label: string
 	schema: Schema | undefined
 	required: boolean
+	arrayPath?: ArgPath
+	arrayIndex?: number
+}
+type ArrayContext = {
+	arrayPath: ArgPath
+	arrayIndex: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,25 +119,61 @@ function schemaDescription(schema: Schema | undefined) {
 	return typeof schema?.description === "string" ? schema.description : undefined
 }
 
-function schemaDefault(schema: Schema | undefined): ArgValue {
-	if (!schema) return OMIT
-	if ("default" in schema) return schema.default
-	if ("const" in schema) return schema.const
-	return OMIT
+function cloneSchemaValue(value: unknown): unknown {
+	if (value === null || typeof value !== "object") return value
+	return JSON.parse(JSON.stringify(value)) as unknown
+}
+
+function objectSchemaHasProperties(schema: Schema | undefined) {
+	return !!asSchema(schema?.properties)
+}
+
+function defaultObjectValue(schema: Schema | undefined): Record<string, unknown> {
+	const object: Record<string, unknown> = {}
+	const properties = asSchema(schema?.properties)
+	const required = new Set(schemaStringArray(schema?.required) ?? [])
+	if (!properties) return object
+	for (const [name, rawSchema] of Object.entries(properties)) {
+		if (required.has(name)) object[name] = defaultValue(asSchema(rawSchema), true)
+	}
+	return object
+}
+
+function defaultValue(schema: Schema | undefined, seedArray: boolean): unknown {
+	if (!schema) return null
+	if ("default" in schema) return cloneSchemaValue(schema.default)
+	if ("const" in schema) return cloneSchemaValue(schema.const)
+	const enumValues = schemaEnum(schema)
+	if (enumValues?.length) return cloneSchemaValue(enumValues[0])
+	const type = schema.type
+	if (type === "string") return ""
+	if (type === "number" || type === "integer") return 0
+	if (type === "boolean") return false
+	if (type === "object" || objectSchemaHasProperties(schema)) return defaultObjectValue(schema)
+	if (type === "array") {
+		const items = asSchema(schema.items)
+		return seedArray && items ? [defaultValue(items, false)] : []
+	}
+	return null
 }
 
 function valueLabel(value: ArgValue) {
-	return value === OMIT ? OMIT_LABEL : JSON.stringify(value)
+	if (value === OMIT) return OMIT_LABEL
+	const json = JSON.stringify(value)
+	return json === undefined ? "undefined" : json
 }
 
-function inputValue(value: ArgValue, schema: Schema | undefined) {
+function inputValue(value: ArgValue, _schema: Schema | undefined) {
 	if (value === OMIT) return ""
-	return schema?.type === "string" && typeof value === "string" ? value : valueLabel(value)
+	return valueLabel(value)
 }
 
 function coerceValue(text: string, schema: Schema | undefined): ArgValue | undefined {
 	const type = schema?.type
-	if (type === "string") return text
+	if (type === "string") {
+		const parsed = parseJsonValue(text.trim())
+		return typeof parsed === "string" ? parsed : undefined
+	}
 	if (type === "number" || type === "integer") {
 		if (text.trim() === "") return undefined
 		const value = Number(text.trim())
@@ -141,219 +187,402 @@ function coerceValue(text: string, schema: Schema | undefined): ArgValue | undef
 	return parsed
 }
 
-function flattenFields(schema: Schema | undefined, path: string[] = [], depth = 0): ArgField[] {
-	const properties = schema ? asSchema(schema.properties) : undefined
+function pathLabel(path: ArgPath) {
+	let label = ""
+	for (const part of path) label += typeof part === "number" ? `[${part}]` : label ? `.${part}` : part
+	return label
+}
+
+function samePath(a: ArgPath, b: ArgPath) {
+	return a.length === b.length && a.every((part, index) => part === b[index])
+}
+
+function isContainer(value: unknown): value is Record<string, unknown> | unknown[] {
+	return isRecord(value) || Array.isArray(value)
+}
+
+function getAt(root: unknown, path: ArgPath): unknown {
+	let current = root
+	for (const part of path) {
+		if (typeof part === "number") {
+			if (!Array.isArray(current)) return undefined
+			current = current[part]
+		} else {
+			if (!isRecord(current)) return undefined
+			current = current[part]
+		}
+	}
+	return current
+}
+
+function hasAt(root: unknown, path: ArgPath) {
+	let current = root
+	for (const part of path) {
+		if (typeof part === "number") {
+			if (!Array.isArray(current) || !(part in current)) return false
+			current = current[part]
+		} else {
+			if (!isRecord(current) || !Object.hasOwn(current, part)) return false
+			current = current[part]
+		}
+	}
+	return true
+}
+
+function setAt(root: Record<string, unknown>, path: ArgPath, value: unknown) {
+	let current: Record<string, unknown> | unknown[] = root
+	for (let index = 0; index < path.length - 1; index++) {
+		const part = path[index]
+		const nextPart = path[index + 1]
+		if (part === undefined || nextPart === undefined) return
+		let next: unknown
+		if (typeof part === "number") {
+			if (!Array.isArray(current)) return
+			next = current[part]
+			if (!isContainer(next)) {
+				const created: Record<string, unknown> | unknown[] = typeof nextPart === "number" ? [] : {}
+				current[part] = created
+				next = created
+			}
+		} else {
+			if (!isRecord(current)) return
+			next = current[part]
+			if (!isContainer(next)) {
+				const created: Record<string, unknown> | unknown[] = typeof nextPart === "number" ? [] : {}
+				current[part] = created
+				next = created
+			}
+		}
+		if (!isContainer(next)) return
+		current = next
+	}
+	const last = path.at(-1)
+	if (last === undefined) return
+	if (typeof last === "number") {
+		if (Array.isArray(current)) current[last] = value
+	} else if (isRecord(current)) current[last] = value
+}
+
+function deleteAt(root: Record<string, unknown>, path: ArgPath) {
+	const parent = getAt(root, path.slice(0, -1))
+	const last = path.at(-1)
+	if (last === undefined) return
+	if (typeof last === "number") {
+		if (Array.isArray(parent)) parent.splice(last, 1)
+	} else if (isRecord(parent)) delete parent[last]
+}
+
+function getArrayAt(root: unknown, path: ArgPath) {
+	const value = getAt(root, path)
+	return Array.isArray(value) ? value : undefined
+}
+
+function makeRow(row: Omit<ArgRow, "arrayPath" | "arrayIndex">, arrayContext?: ArrayContext): ArgRow {
+	return arrayContext ? { ...row, arrayPath: arrayContext.arrayPath, arrayIndex: arrayContext.arrayIndex } : row
+}
+
+function buildObjectRows(
+	schema: Schema | undefined,
+	args: Record<string, unknown>,
+	path: ArgPath = [],
+	depth = 0,
+	arrayContext?: ArrayContext
+): ArgRow[] {
+	const properties = asSchema(schema?.properties)
 	if (!properties) return []
 	const required = new Set(schemaStringArray(schema?.required) ?? [])
-	const fields: ArgField[] = []
+	const rows: ArgRow[] = []
 	for (const [name, rawSchema] of Object.entries(properties)) {
 		const propertySchema = asSchema(rawSchema)
 		const propertyPath = [...path, name]
-		const nested = propertySchema?.type === "object" && asSchema(propertySchema.properties)
-		if (nested) {
-			fields.push(...flattenFields(propertySchema, propertyPath, depth + 1))
-			continue
-		}
-		fields.push({
+		const base = {
 			path: propertyPath,
 			label: `${"  ".repeat(depth)}${name}`,
 			schema: propertySchema,
 			required: required.has(name)
-		})
+		}
+		if (propertySchema?.type === "array") {
+			rows.push(makeRow({ ...base, kind: "array" }, arrayContext))
+			if (hasAt(args, propertyPath)) rows.push(...buildArrayRows(propertySchema, args, propertyPath, depth + 1))
+		} else if (propertySchema?.type === "object" || objectSchemaHasProperties(propertySchema)) {
+			rows.push(makeRow({ ...base, kind: "object" }, arrayContext))
+			if (hasAt(args, propertyPath)) rows.push(...buildObjectRows(propertySchema, args, propertyPath, depth + 1, arrayContext))
+		} else rows.push(makeRow({ ...base, kind: "field" }, arrayContext))
 	}
-	return fields
+	return rows
 }
 
-function setNested(target: Record<string, unknown>, path: string[], value: unknown) {
-	let current = target
-	for (const key of path.slice(0, -1)) {
-		const next = current[key]
-		if (isRecord(next)) current = next
-		else {
-			const created: Record<string, unknown> = {}
-			current[key] = created
-			current = created
+function buildArrayRows(schema: Schema | undefined, args: Record<string, unknown>, arrayPath: ArgPath, depth: number): ArgRow[] {
+	const rows: ArgRow[] = []
+	const array = getArrayAt(args, arrayPath) ?? []
+	const items = asSchema(schema?.items)
+	for (let index = 0; index < array.length; index++) {
+		const itemPath = [...arrayPath, index]
+		const arrayContext = { arrayPath, arrayIndex: index }
+		const label = `${"  ".repeat(depth)}[${index}]`
+		if (items?.type === "array") {
+			rows.push(makeRow({ kind: "array", path: itemPath, label, schema: items, required: true }, arrayContext))
+			rows.push(...buildArrayRows(items, args, itemPath, depth + 1))
+		} else if (items?.type === "object" || objectSchemaHasProperties(items)) {
+			rows.push(makeRow({ kind: "item", path: itemPath, label, schema: items, required: true }, arrayContext))
+			rows.push(...buildObjectRows(items, args, itemPath, depth + 1, arrayContext))
+		} else rows.push(makeRow({ kind: "field", path: itemPath, label, schema: items, required: true }, arrayContext))
+	}
+	return rows
+}
+
+function schemaSummaryLines(schema: Schema | undefined, required: boolean, indent = "  "): string[] {
+	const lines = [`${indent}${required ? "required" : "optional"} ${schemaType(schema)}`]
+	const description = schemaDescription(schema)
+	if (description) lines.push(...wrapText(`${indent}${description}`, 120))
+	const items = asSchema(schema?.items)
+	if (items) {
+		lines.push(`${indent}items:`)
+		lines.push(...schemaSummaryLines(items, true, `${indent}  `))
+	}
+	const properties = asSchema(schema?.properties)
+	if (properties) {
+		const requiredProperties = new Set(schemaStringArray(schema?.required) ?? [])
+		for (const [name, rawSchema] of Object.entries(properties)) {
+			const propertySchema = asSchema(rawSchema)
+			const propertyLines = schemaSummaryLines(propertySchema, requiredProperties.has(name), `${indent}  `)
+			const [firstLine = `${indent}  ${name}: any`, ...rest] = propertyLines
+			lines.push(`${indent}${name}: ${firstLine.trimStart()}`)
+			lines.push(...rest)
 		}
 	}
-	const last = path.at(-1)
-	if (last) current[last] = value
-}
-
-function buildArgs(fields: ArgField[], values: Map<string, ArgValue>, included: Set<string>) {
-	const args: Record<string, unknown> = {}
-	for (const field of fields) {
-		const id = field.path.join(".")
-		const value = values.get(id)
-		if (included.has(id) && value !== undefined && value !== OMIT) setNested(args, field.path, value)
-	}
-	return args
+	return lines
 }
 
 async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo): Promise<Record<string, unknown> | undefined> {
 	const parameters = asSchema(tool.parameters)
-	const fields = flattenFields(parameters)
-	if (fields.length === 0) return {}
-
-	const values = new Map<string, ArgValue>()
-	for (const field of fields) values.set(field.path.join("."), field.required ? schemaDefault(field.schema) : OMIT)
+	const args = defaultObjectValue(parameters)
+	const initialRows = buildObjectRows(parameters, args)
+	if (initialRows.length === 0) return {}
 
 	return ctx.ui.custom<Record<string, unknown> | undefined>((_tui, theme, _keybindings, done) => {
 		const listTheme = getSettingsListTheme()
+		let rows = initialRows
 		let selectedIndex = 0
-		let focusPart: "include" | "value" = "include"
+		let focusPart: "include" | "value" = "value"
 		let activeInput: Input | undefined
-		const included = new Set(fields.filter(field => field.required).map(field => field.path.join(".")))
-		const maxVisible = Math.min(fields.length, 14)
 
-		const fieldId = (field: ArgField) => field.path.join(".")
-		const fieldChoices = (field: ArgField) => {
-			const enumValues = field.schema ? schemaEnum(field.schema) : undefined
-			const choices = enumValues?.map(value => JSON.stringify(value)) ?? (field.schema?.type === "boolean" ? ["true", "false"] : undefined)
-			return choices && !field.required ? [OMIT_LABEL, ...choices] : choices
+		const selectedRow = () => rows[selectedIndex]
+		const rowCanInclude = (row: ArgRow) => row.kind !== "item" && !row.required
+		const rowIncluded = (row: ArgRow) => row.kind === "item" || row.required || hasAt(args, row.path)
+		const rowChoices = (row: ArgRow | undefined) => {
+			if (!row || row.kind !== "field") return undefined
+			const enumValues = row.schema ? schemaEnum(row.schema) : undefined
+			const enumChoices = enumValues?.map(valueLabel)
+			return enumChoices?.length ? enumChoices : row.schema?.type === "boolean" ? ["true", "false"] : undefined
 		}
-		const setValueFromLabel = (field: ArgField, label: string) => {
-			const id = fieldId(field)
-			if (label === OMIT_LABEL) values.set(id, OMIT)
-			else if (field.schema?.type === "boolean") values.set(id, label === "true")
+		const setRowValueFromLabel = (row: ArgRow, label: string) => {
+			if (row.schema?.type === "boolean") setAt(args, row.path, label === "true")
 			else {
 				const parsed = parseJsonValue(label)
-				values.set(id, parsed === undefined ? label : parsed)
+				setAt(args, row.path, parsed === undefined ? label : parsed)
 			}
 		}
 		const inputCursor = (input: Input) => (input as unknown as { cursor: number }).cursor
 		const setInputCursor = (input: Input, cursor: number) => {
 			;(input as unknown as { cursor: number }).cursor = cursor
 		}
-		const selectedFieldIncluded = () => {
-			const field = fields[selectedIndex]
-			return !!field && (field.required || included.has(fieldId(field)))
-		}
-		const updateFocus = () => {
-			focusPart = selectedFieldIncluded() ? "value" : "include"
-		}
 		const renderInput = (input: Input, width: number) => input.render(width + 2)[0]?.slice(2) ?? ""
+		const updateFocus = () => {
+			const row = selectedRow()
+			focusPart = row && rowCanInclude(row) && !rowIncluded(row) ? "include" : "value"
+		}
 		const updateActiveInput = () => {
-			const field = fields[selectedIndex]
-			if (!field || fieldChoices(field)) {
+			const row = selectedRow()
+			if (!row || row.kind !== "field" || rowChoices(row) || !rowIncluded(row)) {
 				activeInput = undefined
 				return
 			}
 			const input = new Input()
-			input.setValue(inputValue(values.get(fieldId(field)) ?? OMIT, field.schema))
-			setInputCursor(input, input.getValue().length)
+			input.setValue(inputValue(hasAt(args, row.path) ? getAt(args, row.path) : OMIT, row.schema))
+			setInputCursor(input, row.schema?.type === "string" ? Math.max(1, input.getValue().length - 1) : input.getValue().length)
 			input.focused = true
 			activeInput = input
 		}
+		const refreshRows = () => {
+			rows = buildObjectRows(parameters, args)
+			if (selectedIndex >= rows.length) selectedIndex = Math.max(0, rows.length - 1)
+			updateActiveInput()
+			updateFocus()
+		}
+		const selectPath = (path: ArgPath) => {
+			const index = rows.findIndex(row => samePath(row.path, path))
+			if (index >= 0) selectedIndex = index
+			updateActiveInput()
+			updateFocus()
+		}
 		const commitActiveInput = () => {
-			const field = fields[selectedIndex]
-			if (!field || !activeInput || !selectedFieldIncluded()) return true
-			const id = fieldId(field)
+			const row = selectedRow()
+			if (!row || !activeInput || row.kind !== "field" || !rowIncluded(row)) return true
 			const value = activeInput.getValue()
-			const coerced = coerceValue(value, field.schema)
+			const coerced = coerceValue(value, row.schema)
 			if (coerced === undefined) {
-				ctx.ui.notify(`${id} must match ${schemaType(field.schema)}.`, "error")
+				ctx.ui.notify(`${pathLabel(row.path)} must match ${schemaType(row.schema)}.`, "error")
 				return false
 			}
-			values.set(id, coerced)
+			setAt(args, row.path, coerced)
 			return true
 		}
 		const handleActiveInput = (data: string) => {
 			activeInput?.handleInput(data)
 		}
 		const toggleInclude = () => {
-			const field = fields[selectedIndex]
-			if (!field || field.required) return
-			const id = fieldId(field)
-			if (included.has(id)) {
-				included.delete(id)
-				values.set(id, OMIT)
+			const row = selectedRow()
+			if (!row || !rowCanInclude(row)) return
+			if (rowIncluded(row)) {
+				deleteAt(args, row.path)
 				focusPart = "include"
-				updateActiveInput()
-				return
+			} else {
+				setAt(args, row.path, defaultValue(row.schema, true))
+				focusPart = "value"
 			}
-			included.add(id)
-			const choices = fieldChoices(field)?.filter(choice => choice !== OMIT_LABEL)
-			if (choices?.[0]) setValueFromLabel(field, choices[0])
-			focusPart = "value"
+			refreshRows()
+		}
+		const addArrayItemForRow = (row: ArgRow, afterIndex?: number) => {
+			if (row.kind !== "array") return false
+			if (!hasAt(args, row.path)) setAt(args, row.path, [])
+			const array = getArrayAt(args, row.path)
+			if (!array) return false
+			const itemSchema = asSchema(row.schema?.items)
+			const index = afterIndex === undefined ? array.length : Math.min(array.length, afterIndex + 1)
+			array.splice(index, 0, defaultValue(itemSchema, false))
+			refreshRows()
+			selectPath([...row.path, index])
+			return true
+		}
+		const addArrayItemForSelection = () => {
+			const row = selectedRow()
+			if (!row) return false
+			const arrayRow =
+				row.kind === "array"
+					? row
+					: row.arrayPath
+						? rows.find(candidate => candidate.kind === "array" && samePath(candidate.path, row.arrayPath ?? []))
+						: undefined
+			return arrayRow ? addArrayItemForRow(arrayRow, row.kind === "array" ? -1 : row.arrayIndex) : false
+		}
+		const removeArrayItemAt = (arrayPath: ArgPath, index: number) => {
+			const array = getArrayAt(args, arrayPath)
+			if (!array || index < 0 || index >= array.length) return false
+			array.splice(index, 1)
+			refreshRows()
+			selectPath(array.length > 0 ? [...arrayPath, Math.min(index, array.length - 1)] : arrayPath)
+			return true
+		}
+		const removeSelectedArrayItem = () => {
+			const row = selectedRow()
+			if (!row) return false
+			if (row.kind === "array") {
+				const array = getArrayAt(args, row.path)
+				return array ? removeArrayItemAt(row.path, array.length - 1) : false
+			}
+			return row.arrayPath && row.arrayIndex !== undefined ? removeArrayItemAt(row.arrayPath, row.arrayIndex) : false
+		}
+		const rowValue = (row: ArgRow, index: number, valueWidth: number) => {
+			if (!rowIncluded(row)) return OMIT_LABEL
+			if (row.kind === "object") {
+				const value = getAt(args, row.path)
+				const count = isRecord(value) ? Object.keys(value).length : 0
+				return `${count} prop${count === 1 ? "" : "s"}`
+			}
+			if (row.kind === "array") {
+				const count = getArrayAt(args, row.path)?.length ?? 0
+				return `${count} item${count === 1 ? "" : "s"}`
+			}
+			if (row.kind === "item") return schemaType(row.schema)
+			if (activeInput && index === selectedIndex)
+				return focusPart === "value" ? renderInput(activeInput, valueWidth) : activeInput.getValue()
+			return valueLabel(hasAt(args, row.path) ? getAt(args, row.path) : OMIT)
 		}
 		updateActiveInput()
 		updateFocus()
 
 		return {
 			render: (width: number) => {
-				const lines: string[] = [
-					theme.fg("accent", theme.bold(`Arguments for ${tool.name}`)),
-					theme.fg("dim", "Enter run · Esc back · ←/→ switch include/value · type to edit · ↑/↓ commit+move"),
+				const selected = selectedRow()
+				const lines: string[] = [theme.fg("accent", theme.bold(`Arguments for ${tool.name}`))]
+				const helpLines: string[] = selected
+					? [
+							`${pathLabel(selected.path)} · ${selected.kind}`,
+							...schemaSummaryLines(selected.schema, selected.required).flatMap(line => wrapText(line, width))
+						]
+					: []
+				for (let index = 0; index < 5; index++) {
+					const line = helpLines[index]
+					if (line) lines.push(listTheme.description(`  ${line}`))
+					else lines.push("")
+				}
+				lines.push(
+					theme.fg("dim", "Enter run · Esc back · ←/→ include/value · Space toggle/cycle bools/enums · + insert item · - remove item"),
 					""
-				]
-				const startIndex = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), fields.length - maxVisible))
-				const endIndex = Math.min(startIndex + maxVisible, fields.length)
-				const maxLabelWidth = Math.min(30, Math.max(...fields.map(field => visibleWidth(field.label))))
-				for (let index = startIndex; index < endIndex; index++) {
-					const field = fields[index]
-					if (!field) continue
-					const id = fieldId(field)
+				)
+
+				const maxVisible = 16
+				const startIndex = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), Math.max(0, rows.length - maxVisible)))
+				const endIndex = Math.min(startIndex + maxVisible, rows.length)
+				const maxLabelWidth = Math.min(34, Math.max(...rows.map(row => visibleWidth(row.label))))
+				for (let index = startIndex; index < startIndex + maxVisible; index++) {
+					const row = index < endIndex ? rows[index] : undefined
+					if (!row) {
+						lines.push("")
+						continue
+					}
 					const isSelected = index === selectedIndex
 					const prefix = isSelected ? listTheme.cursor : "  "
-					const isIncluded = field.required || included.has(id)
-					const checkboxText = `${isIncluded ? "[x]" : "[ ]"} `
-					const checkboxSelected = isSelected && focusPart === "include"
-					const checkbox = field.required ? theme.fg("dim", checkboxText) : listTheme.label(checkboxText, checkboxSelected)
-					const label = listTheme.label(field.label + " ".repeat(Math.max(0, maxLabelWidth - visibleWidth(field.label))), isSelected)
-					const valueWidth = Math.max(1, width - visibleWidth(prefix) - visibleWidth(checkboxText) - maxLabelWidth - 6)
-					const rawValue =
-						activeInput && index === selectedIndex && isIncluded
-							? focusPart === "value"
-								? renderInput(activeInput, valueWidth)
-								: activeInput.getValue()
-							: valueLabel(values.get(id) ?? OMIT)
+					const isIncluded = rowIncluded(row)
+					const controlText = row.kind === "item" ? "    " : `${isIncluded ? "[x]" : "[ ]"} `
+					const controlSelected = isSelected && focusPart === "include" && rowCanInclude(row)
+					const control = row.kind === "item" || row.required ? theme.fg("dim", controlText) : listTheme.label(controlText, controlSelected)
+					const label = listTheme.label(row.label + " ".repeat(Math.max(0, maxLabelWidth - visibleWidth(row.label))), isSelected)
+					const valueWidth = Math.max(1, width - visibleWidth(prefix) - visibleWidth(controlText) - maxLabelWidth - 6)
+					const rawValue = rowValue(row, index, valueWidth)
 					const valueSelected = isSelected && focusPart === "value"
 					const value = listTheme.value(truncateToWidth(rawValue, valueWidth, ""), valueSelected)
-					lines.push(truncateToWidth(`${prefix}${checkbox}${label}  ${value}`, width))
+					lines.push(truncateToWidth(`${prefix}${control}${label}  ${value}`, width))
 				}
-				if (startIndex > 0 || endIndex < fields.length) lines.push(listTheme.hint(`  (${selectedIndex + 1}/${fields.length})`))
-				const selected = fields[selectedIndex]
-				if (selected) {
-					lines.push("")
-					lines.push(
-						listTheme.description(
-							`  ${selected.required ? "required" : "optional"} ${schemaType(selected.schema)}${schemaDescription(selected.schema) ? ` - ${schemaDescription(selected.schema)}` : ""}`
-						)
-					)
-				}
+				lines.push(startIndex > 0 || endIndex < rows.length ? listTheme.hint(`  (${selectedIndex + 1}/${rows.length})`) : "")
 				return lines
 			},
 			invalidate: () => activeInput?.invalidate(),
 			handleInput: (data: string) => {
 				const kb = getKeybindings()
 				if (kb.matches(data, "tui.input.submit")) {
-					if (commitActiveInput()) done(buildArgs(fields, values, included))
+					if (commitActiveInput()) done(args)
 				} else if (kb.matches(data, "tui.select.up")) {
 					if (!commitActiveInput()) return
-					selectedIndex = selectedIndex === 0 ? fields.length - 1 : selectedIndex - 1
+					selectedIndex = selectedIndex === 0 ? rows.length - 1 : selectedIndex - 1
 					updateActiveInput()
 					updateFocus()
 				} else if (kb.matches(data, "tui.select.down")) {
 					if (!commitActiveInput()) return
-					selectedIndex = selectedIndex === fields.length - 1 ? 0 : selectedIndex + 1
+					selectedIndex = selectedIndex === rows.length - 1 ? 0 : selectedIndex + 1
 					updateActiveInput()
 					updateFocus()
 				} else if (kb.matches(data, "tui.editor.cursorRight")) {
-					if (focusPart === "include" && selectedFieldIncluded()) focusPart = "value"
+					const row = selectedRow()
+					if (focusPart === "include" && row && rowIncluded(row)) focusPart = "value"
 					else if (focusPart === "value") handleActiveInput(data)
 				} else if (kb.matches(data, "tui.editor.cursorLeft")) {
-					if (focusPart === "value" && (!activeInput || inputCursor(activeInput) === 0)) focusPart = "include"
+					const row = selectedRow()
+					if (focusPart === "value" && row && rowCanInclude(row) && (!activeInput || inputCursor(activeInput) === 0)) focusPart = "include"
 					else if (focusPart === "value") handleActiveInput(data)
 				} else if (data === " ") {
-					const field = fields[selectedIndex]
-					if (!field) return
-					const choices = fieldChoices(field)
+					const row = selectedRow()
+					if (!row) return
+					const choices = rowChoices(row)
 					if (focusPart === "include") toggleInclude()
 					else if (choices) {
-						const current = valueLabel(values.get(fieldId(field)) ?? OMIT)
-						setValueFromLabel(field, choices[(choices.indexOf(current) + 1) % choices.length] ?? choices[0] ?? OMIT_LABEL)
+						const current = valueLabel(hasAt(args, row.path) ? getAt(args, row.path) : OMIT)
+						setRowValueFromLabel(row, choices[(choices.indexOf(current) + 1) % choices.length] ?? choices[0] ?? "null")
 					} else handleActiveInput(data)
-				} else if (kb.matches(data, "tui.select.cancel")) done(undefined)
+				} else if ((data === "+" || data === "=") && !activeInput) addArrayItemForSelection()
+				else if (data === "-" && !activeInput) removeSelectedArrayItem()
+				else if (kb.matches(data, "tui.select.cancel")) done(undefined)
 				else if (focusPart === "value") handleActiveInput(data)
 			}
 		}
@@ -366,13 +595,33 @@ function formatArgs(args: Record<string, unknown>) {
 		.join(", ")
 }
 
+function wrapText(text: string, width: number) {
+	if (width <= 0) return [""]
+	const words = text.split(/(\s+)/).filter(Boolean)
+	const lines: string[] = []
+	let line = ""
+	for (const word of words) {
+		const next = `${line}${word}`
+		if (line && visibleWidth(next) > width) {
+			lines.push(line.trimEnd())
+			line = word.trimStart()
+			continue
+		}
+		line = next
+	}
+	if (line || lines.length === 0) lines.push(line.trimEnd())
+	return lines
+}
+
 function resultText(result: AgentToolResult<unknown>) {
-	return result.content.map(part => {
-		if (part.type === "text") return part.text
-		const image = part as { type: string; source?: { data?: string; media_type?: string } }
-		if (image.source) return `[${image.type}: ${image.source.media_type ?? "unknown"}]`
-		return `[${image.type}]`
-	}).join("\n")
+	return result.content
+		.map(part => {
+			if (part.type === "text") return part.text
+			const image = part as { type: string; source?: { data?: string; media_type?: string } }
+			if (image.source) return `[${image.type}: ${image.source.media_type ?? "unknown"}]`
+			return `[${image.type}]`
+		})
+		.join("\n")
 }
 
 export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
@@ -383,9 +632,9 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 			box.addChild(new Text("Tool run", 0, 0))
 			return box
 		}
-		const callLine = theme.fg("toolTitle", theme.bold(`${details.toolName}(${formatArgs(details.toolArgs)})`))
+		const callLine = `Tool: ${theme.fg("toolTitle", theme.bold(`${details.toolName}(${formatArgs(details.toolArgs)})`))}`
 		const output = resultText(details.result)
-		const body = output ? `${callLine}\n${theme.fg("toolOutput", output)}` : callLine
+		const body = output ? `${callLine}\n\n${theme.fg("toolOutput", output)}` : callLine
 		const box = new Box(1, 1, value => theme.bg(details.isError ? "toolErrorBg" : "toolSuccessBg", value))
 		box.addChild(new Text(body, 0, 0))
 		return box
@@ -436,6 +685,35 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 					continue
 				}
 
+				const toolName = selectedTool.name
+				let elapsedDone = false
+				ctx.ui.setWidget("tool-loading", (tui: TUI, theme) => {
+					let interval: ReturnType<typeof setInterval> | undefined
+					const callLine = theme.fg("toolTitle", theme.bold(`${toolName}(${formatArgs(toolArgs)})`))
+					const text = new Text(`${callLine}\n${theme.fg("toolOutput", "Tool is running...")}`, 0, 0)
+					const box = new Box(1, 1, value => theme.bg("toolPendingBg", value))
+					box.addChild(text)
+					const comp = {
+						invalidate() {
+							box.invalidate()
+						},
+						render(width: number) {
+							return box.render(width)
+						},
+						dispose() {
+							if (interval) clearInterval(interval)
+						}
+					}
+					interval = setInterval(() => {
+						if (elapsedDone) {
+							comp.dispose()
+							return
+						}
+						tui.requestRender()
+					}, 200)
+					return comp
+				})
+
 				const now = Date.now()
 				const toolCallId = `run_tool_${now}`
 
@@ -448,11 +726,14 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 					result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], details: undefined }
 				}
 
+				elapsedDone = true
+				ctx.ui.setWidget("tool-loading", undefined)
+
 				pi.sendMessage({
 					customType: RUN_TOOL_MESSAGE_TYPE,
 					content: resultText(result),
 					display: true,
-					details: { toolName: selectedTool.name, toolArgs, toolCallId, result, isError, timestamp: Date.now() } satisfies RunToolDetails
+					details: { toolName, toolArgs, toolCallId, result, isError, timestamp: Date.now() } satisfies RunToolDetails
 				})
 				return
 			}
