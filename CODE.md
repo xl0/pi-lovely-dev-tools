@@ -10,7 +10,7 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 
 ## `/run-tool`
 
-`/run-tool [tool_name]` waits for idle, selects a tool, edits args in an inline TUI, executes the tool, then appends one displayed custom message.
+`/run-tool [tool_name]` waits for idle, selects a tool with a searchable inline selector, edits args in an inline TUI, executes the tool, then appends one displayed custom message.
 
 Custom message type: `lovely-dev-tools.run-tool` with `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, `timestamp`.
 
@@ -29,7 +29,7 @@ The `context` hook filters these custom messages out of LLM context while keepin
 - booleans and enums/literal unions cycle with Space from the value cell
 - scalar and unstructured object/array leaves edit inline with a single-line `Input`
 - string drafts are JSON-quoted while editing
-- selected-row schema/help is shown in a fixed-height top panel
+- tool description and selected-row schema/help are shown in a fixed-height top panel
 
 The editor mutates a nested args object directly from schema paths. Omitted fields/groups are absent from the final args. Scalar/JSON rows commit and validate when moving away or pressing Enter. Empty string and omitted are distinct.
 

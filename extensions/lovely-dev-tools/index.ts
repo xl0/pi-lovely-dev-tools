@@ -5,7 +5,7 @@ import {
 	getSettingsListTheme
 } from "@earendil-works/pi-coding-agent"
 import type { TUI } from "@earendil-works/pi-tui"
-import { Box, getKeybindings, Input, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui"
+import { Box, fuzzyFilter, getKeybindings, Input, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui"
 
 const RUN_TOOL_MESSAGE_TYPE = "lovely-dev-tools.run-tool"
 const OMIT = Symbol("omit")
@@ -80,9 +80,68 @@ function isRunToolDetails(value: unknown): value is RunToolDetails {
 	)
 }
 
-function toolLabel(tool: ToolInfo, activeTools: Set<string>) {
-	const active = activeTools.has(tool.name) ? "active" : "inactive"
-	return `${tool.name} (${active}) - ${tool.description}`
+async function selectTool(ctx: ExtensionCommandContext, tools: ToolInfo[], activeTools: Set<string>) {
+	return ctx.ui.custom<ToolInfo | undefined>((_tui, theme, _keybindings, done) => {
+		const listTheme = getSettingsListTheme()
+		const searchInput = new Input()
+		searchInput.focused = true
+		let filteredTools = tools
+		let selectedIndex = 0
+
+		const applyFilter = () => {
+			const query = searchInput.getValue()
+			filteredTools = query ? fuzzyFilter(tools, query, tool => `${tool.name} ${tool.description}`) : tools
+			selectedIndex = 0
+		}
+
+		return {
+			render: (width: number) => {
+				const lines = [theme.fg("accent", theme.bold("Tool:")), ...(searchInput.render(width)[0] ? searchInput.render(width) : [""]), ""]
+				if (filteredTools.length === 0) {
+					lines.push(listTheme.hint("  No matching tools"), "", listTheme.hint("  Type to search · Enter select · Esc cancel"))
+					return lines
+				}
+
+				const maxVisible = Math.min(14, filteredTools.length)
+				const startIndex = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), filteredTools.length - maxVisible))
+				const endIndex = Math.min(startIndex + maxVisible, filteredTools.length)
+				for (let index = startIndex; index < endIndex; index++) {
+					const tool = filteredTools[index]
+					if (!tool) continue
+					const isSelected = index === selectedIndex
+					const prefix = isSelected ? listTheme.cursor : "  "
+					const state = activeTools.has(tool.name) ? "active" : "inactive"
+					const name = listTheme.label(tool.name, isSelected)
+					const descriptionWidth = Math.max(1, width - visibleWidth(prefix) - visibleWidth(tool.name) - state.length - 8)
+					const description = theme.fg("dim", truncateToWidth(tool.description, descriptionWidth, ""))
+					lines.push(truncateToWidth(`${prefix}${name} ${theme.fg("dim", `(${state})`)}  ${description}`, width))
+				}
+				if (startIndex > 0 || endIndex < filteredTools.length)
+					lines.push(listTheme.hint(`  (${selectedIndex + 1}/${filteredTools.length})`))
+				else lines.push("")
+				lines.push("", listTheme.hint("  Type to search · Enter select · Esc cancel"))
+				return lines
+			},
+			invalidate: () => searchInput.invalidate(),
+			handleInput: (data: string) => {
+				const kb = getKeybindings()
+				if (kb.matches(data, "tui.select.up")) {
+					if (filteredTools.length === 0) return
+					selectedIndex = selectedIndex === 0 ? filteredTools.length - 1 : selectedIndex - 1
+				} else if (kb.matches(data, "tui.select.down")) {
+					if (filteredTools.length === 0) return
+					selectedIndex = selectedIndex === filteredTools.length - 1 ? 0 : selectedIndex + 1
+				} else if (kb.matches(data, "tui.select.confirm") || kb.matches(data, "tui.input.submit")) done(filteredTools[selectedIndex])
+				else if (kb.matches(data, "tui.select.cancel")) done(undefined)
+				else {
+					const sanitized = data.replace(/ /g, "")
+					if (!sanitized) return
+					searchInput.handleInput(sanitized)
+					applyFilter()
+				}
+			}
+		}
+	})
 }
 
 function schemaStringArray(value: unknown): string[] | undefined {
@@ -508,10 +567,11 @@ async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo): Promi
 				const lines: string[] = [theme.fg("accent", theme.bold(`Arguments for ${tool.name}`))]
 				const helpLines: string[] = selected
 					? [
+							...wrapText(tool.description, width - 2),
 							`${pathLabel(selected.path)} · ${selected.kind}`,
 							...schemaSummaryLines(selected.schema, selected.required).flatMap(line => wrapText(line, width))
 						]
-					: []
+					: wrapText(tool.description, width - 2)
 				for (let index = 0; index < 5; index++) {
 					const line = helpLines[index]
 					if (line) lines.push(listTheme.description(`  ${line}`))
@@ -664,12 +724,11 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 			}
 
 			const activeTools = new Set(pi.getActiveTools())
-			const byLabel = new Map(tools.map(tool => [toolLabel(tool, activeTools), tool]))
 			const initialTool = args.trim() ? tools.find(tool => tool.name === args.trim()) : undefined
 			let selectedTool = initialTool
 
 			while (true) {
-				selectedTool ??= byLabel.get((await ctx.ui.select("Tool:", [...byLabel.keys()])) ?? "")
+				selectedTool ??= await selectTool(ctx, tools, activeTools)
 				if (!selectedTool) return
 
 				const definition = ctx.getToolDefinition(selectedTool.name)
