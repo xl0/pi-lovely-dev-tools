@@ -5,7 +5,7 @@
 - [x] Create package template.
 - [x] Add `/run-tool` command for injecting synthetic tool calls/results into chat history.
 - [x] Map selected tool schemas to a SettingsList-style TUI argument editor.
-- [x] Execute supported tools and render call/result messages outside LLM context.
+- [x] Execute configured tool definitions via `ctx.getToolDefinition()` and render call/result messages outside LLM context.
 
 ## Tasks
 

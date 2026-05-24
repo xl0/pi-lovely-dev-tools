@@ -21,4 +21,4 @@ The `context` hook filters both custom message types out, so run-tool history is
 
 Schema-to-TUI argument mapping supports object properties (including nested object properties shown with indentation), required/optional fields, string/number/integer/boolean scalars, `enum`/`const`/literal-union selection, defaults as initial values, and JSON input fallback for arrays/complex values.
 
-Tool execution currently uses exported built-in tool definitions (`bash`, `edit`, `find`, `grep`, `ls`, `read`, `write`). Pi's public extension API exposes schemas for extension tools but not executable definitions, so third-party extension tools cannot be executed here yet.
+Tool execution uses command-context `ctx.getToolDefinition(name)`, so it can execute the configured tool definition for built-in and extension tools.

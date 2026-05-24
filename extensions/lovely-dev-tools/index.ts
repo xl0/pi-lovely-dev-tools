@@ -1,12 +1,5 @@
 import {
 	type AgentToolResult,
-	createBashToolDefinition,
-	createEditToolDefinition,
-	createFindToolDefinition,
-	createGrepToolDefinition,
-	createLsToolDefinition,
-	createReadToolDefinition,
-	createWriteToolDefinition,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	ExtensionInputComponent,
@@ -207,37 +200,6 @@ function buildArgs(fields: ArgField[], values: Map<string, ArgValue>) {
 	return args
 }
 
-type ExecutableTool = {
-	execute(
-		toolCallId: string,
-		params: Record<string, unknown>,
-		signal: AbortSignal | undefined,
-		onUpdate: undefined,
-		ctx: ExtensionCommandContext
-	): Promise<AgentToolResult<unknown>>
-}
-
-function getExecutableToolDefinition(name: string, cwd: string): ExecutableTool | undefined {
-	switch (name) {
-		case "bash":
-			return createBashToolDefinition(cwd) as unknown as ExecutableTool
-		case "edit":
-			return createEditToolDefinition(cwd) as unknown as ExecutableTool
-		case "find":
-			return createFindToolDefinition(cwd) as unknown as ExecutableTool
-		case "grep":
-			return createGrepToolDefinition(cwd) as unknown as ExecutableTool
-		case "ls":
-			return createLsToolDefinition(cwd) as unknown as ExecutableTool
-		case "read":
-			return createReadToolDefinition(cwd) as unknown as ExecutableTool
-		case "write":
-			return createWriteToolDefinition(cwd) as unknown as ExecutableTool
-		default:
-			return undefined
-	}
-}
-
 async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo): Promise<Record<string, unknown> | undefined> {
 	const parameters = asSchema(tool.parameters)
 	const fields = flattenFields(parameters)
@@ -365,9 +327,9 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 			const selectedTool = initialTool ?? byLabel.get((await ctx.ui.select("Tool:", [...byLabel.keys()])) ?? "")
 			if (!selectedTool) return
 
-			const definition = getExecutableToolDefinition(selectedTool.name, ctx.cwd)
+			const definition = ctx.getToolDefinition(selectedTool.name)
 			if (!definition) {
-				ctx.ui.notify(`Cannot execute ${selectedTool.name}: pi does not expose executable definitions for extension tools yet.`, "error")
+				ctx.ui.notify(`Cannot execute ${selectedTool.name}: tool definition not available.`, "error")
 				return
 			}
 
