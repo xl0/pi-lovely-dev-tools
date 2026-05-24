@@ -4,7 +4,7 @@ Pi extension package for small development/debugging helpers.
 
 ## Commands
 
-- `/run-tool [tool_name]` — edit tool args from the selected schema, execute the tool, and render call/result custom history entries. These entries are hidden from LLM context.
+- `/tool [tool_name] [flat args...]` — run a tool, optionally passing flat args in schema property order (for example `/tool read file.txt 10 20`). Without flat args, opens a searchable tool selector and schema-driven arg editor. Rendered call/result entries are hidden from LLM context.
 
 ## Install
 

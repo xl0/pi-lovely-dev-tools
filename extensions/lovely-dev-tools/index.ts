@@ -4,7 +4,7 @@ import {
 	type ExtensionCommandContext,
 	getSettingsListTheme
 } from "@earendil-works/pi-coding-agent"
-import type { TUI } from "@earendil-works/pi-tui"
+import type { AutocompleteItem, TUI } from "@earendil-works/pi-tui"
 import { Box, fuzzyFilter, getKeybindings, Input, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui"
 
 const RUN_TOOL_MESSAGE_TYPE = "lovely-dev-tools.run-tool"
@@ -684,6 +684,55 @@ function resultText(result: AgentToolResult<unknown>) {
 		.join("\n")
 }
 
+function splitCommandArgs(args: string) {
+	const parts: string[] = []
+	let current = ""
+	let quote: string | undefined
+	let escaped = false
+	for (const char of args) {
+		if (escaped) {
+			current += char
+			escaped = false
+		} else if (char === "\\") escaped = true
+		else if (quote) {
+			if (char === quote) quote = undefined
+			else current += char
+		} else if (char === '"' || char === "'") quote = char
+		else if (/\s/.test(char)) {
+			if (current) {
+				parts.push(current)
+				current = ""
+			}
+		} else current += char
+	}
+	if (escaped) current += "\\"
+	if (current) parts.push(current)
+	return parts
+}
+
+function coerceFlatArg(text: string, schema: Schema | undefined): unknown | undefined {
+	if (schema?.type === "string") return text
+	return coerceValue(text, schema)
+}
+
+function flatToolArgs(tool: ToolInfo, values: string[]): Record<string, unknown> | undefined {
+	const parameters = asSchema(tool.parameters)
+	const properties = asSchema(parameters?.properties)
+	if (!properties) return values.length === 0 ? {} : undefined
+	const args: Record<string, unknown> = {}
+	const entries = Object.entries(properties)
+	if (values.length > entries.length) return undefined
+	for (let index = 0; index < values.length; index++) {
+		const [name, rawSchema] = entries[index] ?? []
+		if (!name) return undefined
+		const schema = asSchema(rawSchema)
+		const value = coerceFlatArg(values[index] ?? "", schema)
+		if (value === undefined) return undefined
+		args[name] = value
+	}
+	return args
+}
+
 export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 	pi.registerMessageRenderer(RUN_TOOL_MESSAGE_TYPE, (message, _state, theme) => {
 		const details = isRunToolDetails(message.details) ? message.details : undefined
@@ -707,11 +756,18 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 		})
 	}))
 
-	pi.registerCommand("run-tool", {
-		description: "Run a tool from TUI-provided arguments and store rendered call/result messages",
+	pi.registerCommand("tool", {
+		description: "Run a tool. Usage: /tool [tool_name] [flat args...]",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			if (/\s/.test(prefix)) return null
+			const tools = [...pi.getAllTools()].sort((a: ToolInfo, b: ToolInfo) => a.name.localeCompare(b.name))
+			const filtered = fuzzyFilter(tools, prefix, tool => `${tool.name} ${tool.description}`)
+			if (filtered.length === 0) return null
+			return filtered.map(tool => ({ value: `${tool.name} `, label: tool.name, description: tool.description }))
+		},
 		async handler(args, ctx) {
 			if (!ctx.hasUI) {
-				ctx.ui.notify("/run-tool needs interactive UI.", "warning")
+				ctx.ui.notify("/tool needs interactive UI.", "warning")
 				return
 			}
 
@@ -724,8 +780,13 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 			}
 
 			const activeTools = new Set(pi.getActiveTools())
-			const initialTool = args.trim() ? tools.find(tool => tool.name === args.trim()) : undefined
+			const parts = splitCommandArgs(args)
+			const initialTool = parts[0] ? tools.find(tool => tool.name === parts[0]) : undefined
 			let selectedTool = initialTool
+			let initialToolArgs = initialTool && parts.length > 1 ? flatToolArgs(initialTool, parts.slice(1)) : undefined
+			if (initialTool && parts.length > 1 && !initialToolArgs) {
+				ctx.ui.notify(`Could not parse flat args for ${initialTool.name}. Opening editor.`, "warning")
+			}
 
 			while (true) {
 				selectedTool ??= await selectTool(ctx, tools, activeTools)
@@ -737,7 +798,8 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 					return
 				}
 
-				const toolArgs = await editToolArgs(ctx, selectedTool)
+				const toolArgs = initialToolArgs ?? (await editToolArgs(ctx, selectedTool))
+				initialToolArgs = undefined
 				if (!toolArgs) {
 					if (initialTool) return
 					selectedTool = undefined

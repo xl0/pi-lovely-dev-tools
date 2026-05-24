@@ -8,9 +8,11 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 - `extensions/lovely-dev-tools/index.ts`: extension entrypoint.
 - `tsconfig.json`, `biome.json`: strict TypeScript and Biome config.
 
-## `/run-tool`
+## `/tool`
 
-`/run-tool [tool_name]` waits for idle, selects a tool with a searchable inline selector, edits args in an inline TUI, executes the tool, then appends one displayed custom message.
+`/tool [tool_name] [flat args...]` waits for idle, selects a tool with a searchable inline selector when needed, edits args in an inline TUI when flat args are not supplied, executes the tool, then appends one displayed custom message. `/tool <tab>` autocompletes tool names.
+
+Flat args are assigned to top-level schema properties in schema order. Example: `/tool read file.txt 10 20`.
 
 Custom message type: `lovely-dev-tools.run-tool` with `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, `timestamp`.
 
