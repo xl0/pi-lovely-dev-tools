@@ -1,11 +1,24 @@
 import {
 	type AgentToolResult,
+	convertToPng,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	getSettingsListTheme
 } from "@earendil-works/pi-coding-agent"
 import type { AutocompleteItem, TUI } from "@earendil-works/pi-tui"
-import { Box, fuzzyFilter, getKeybindings, Input, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui"
+import {
+	Box,
+	Container,
+	fuzzyFilter,
+	getCapabilities,
+	getKeybindings,
+	Image,
+	Input,
+	Spacer,
+	Text,
+	truncateToWidth,
+	visibleWidth
+} from "@earendil-works/pi-tui"
 
 const RUN_TOOL_MESSAGE_TYPE = "lovely-dev-tools.run-tool"
 const OMIT = Symbol("omit")
@@ -90,7 +103,7 @@ async function selectTool(ctx: ExtensionCommandContext, tools: ToolInfo[], activ
 
 		const applyFilter = () => {
 			const query = searchInput.getValue()
-			filteredTools = query ? fuzzyFilter(tools, query, tool => `${tool.name} ${tool.description}`) : tools
+			filteredTools = query ? fuzzyFilter(tools, query, tool => tool.name) : tools
 			selectedIndex = 0
 		}
 
@@ -673,13 +686,37 @@ function wrapText(text: string, width: number) {
 	return lines
 }
 
+function imageParts(result: AgentToolResult<unknown>) {
+	return result.content.flatMap(part => {
+		if (part.type !== "image") return []
+		const image = part as { data?: string; mimeType?: string; source?: { data?: string; media_type?: string } }
+		const data = image.data ?? image.source?.data
+		const mimeType = image.mimeType ?? image.source?.media_type
+		return data && mimeType ? [{ data, mimeType }] : []
+	})
+}
+
+async function convertResultImagesForTerminal(result: AgentToolResult<unknown>): Promise<AgentToolResult<unknown>> {
+	if (getCapabilities().images !== "kitty") return result
+	const content = await Promise.all(
+		result.content.map(async part => {
+			if (part.type !== "image" || part.mimeType === "image/png") return part
+			const converted = await convertToPng(part.data, part.mimeType)
+			return converted ? { ...part, data: converted.data, mimeType: converted.mimeType } : part
+		})
+	)
+	return { ...result, content }
+}
+
 function resultText(result: AgentToolResult<unknown>) {
 	return result.content
 		.map(part => {
 			if (part.type === "text") return part.text
-			const image = part as { type: string; source?: { data?: string; media_type?: string } }
-			if (image.source) return `[${image.type}: ${image.source.media_type ?? "unknown"}]`
-			return `[${image.type}]`
+			if (part.type === "image") {
+				const image = part as { mimeType?: string; source?: { media_type?: string } }
+				return `[image: ${image.mimeType ?? image.source?.media_type ?? "unknown"}]`
+			}
+			return `[${(part as { type: string }).type}]`
 		})
 		.join("\n")
 }
@@ -746,7 +783,17 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 		const body = output ? `${callLine}\n\n${theme.fg("toolOutput", output)}` : callLine
 		const box = new Box(1, 1, value => theme.bg(details.isError ? "toolErrorBg" : "toolSuccessBg", value))
 		box.addChild(new Text(body, 0, 0))
-		return box
+		const images = imageParts(details.result)
+		if (images.length === 0 || !getCapabilities().images) return box
+		const container = new Container()
+		container.addChild(box)
+		for (const image of images) {
+			container.addChild(new Spacer(1))
+			container.addChild(
+				new Image(image.data, image.mimeType, { fallbackColor: value => theme.fg("toolOutput", value) }, { maxWidthCells: 60 })
+			)
+		}
+		return container
 	})
 
 	pi.on("context", event => ({
@@ -761,7 +808,7 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
 			if (/\s/.test(prefix)) return null
 			const tools = [...pi.getAllTools()].sort((a: ToolInfo, b: ToolInfo) => a.name.localeCompare(b.name))
-			const filtered = fuzzyFilter(tools, prefix, tool => `${tool.name} ${tool.description}`)
+			const filtered = fuzzyFilter(tools, prefix, tool => tool.name)
 			if (filtered.length === 0) return null
 			return filtered.map(tool => ({ value: `${tool.name} `, label: tool.name, description: tool.description }))
 		},
@@ -847,6 +894,7 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 					result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], details: undefined }
 				}
 
+				result = await convertResultImagesForTerminal(result)
 				elapsedDone = true
 				ctx.ui.setWidget("tool-loading", undefined)
 
