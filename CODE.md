@@ -4,11 +4,15 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 
 ## Structure
 
-- `package.json`: npm/pi package manifest. Pi loads `./extensions`.
-- `extensions/lovely-dev-tools/index.ts`: extension entrypoint.
+- `package.json`: npm/pi package manifest. Pi loads `./extensions` and links `assets/demo.mp4` through `pi.video` using a raw GitHub URL. `assets/` is intentionally excluded from published npm files.
+- `extensions/lovely-dev-tools/index.ts`: extension entrypoint. Registers `/tool` and `/show-sysprompt`.
+- `assets/demo.mp4`: source demo video kept in repo, not shipped in npm package.
+- `assets/demo.gif`: npm/GitHub-compatible README demo preview kept in repo, not shipped in npm package.
 - `tsconfig.json`, `biome.json`: strict TypeScript and Biome config.
 
-## `/tool`
+## `lovely-dev-tools`
+
+### `/tool`
 
 `/tool [tool_name] [flat args...]` waits for idle, selects a tool with a searchable inline selector when needed, edits args in an inline TUI when flat args are not supplied, executes the tool, then appends one displayed custom message. Tool selector search and `/tool <tab>` autocomplete match tool names only.
 
@@ -47,3 +51,12 @@ While running, a `tool-loading` widget shows the pending call. On completion, a 
 - success uses `toolSuccessBg`
 
 `resultText()` renders text blocks directly and non-text blocks as placeholders. Image result blocks currently render both a text placeholder and, when the terminal supports images, an inline image. Non-PNG top-level image blocks are converted with Pi's `convertToPng()` before storing results for Kitty-compatible terminals.
+
+### `/show-sysprompt`
+
+`/show-sysprompt` waits for idle, then emits two displayed custom messages:
+
+- rendered system prompt from `ctx.getSystemPrompt()`
+- active tool schemas from `pi.getAllTools()` filtered by `pi.getActiveTools()`
+
+Both messages use collapsible custom renderers, are filtered out of LLM context, and are skipped in session tree preparation. Tool schema formatting shows each active tool, its top-level parameters, required/optional status, inferred schema type, and parameter description when present.

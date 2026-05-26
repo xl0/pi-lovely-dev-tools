@@ -3,7 +3,8 @@ import {
 	convertToPng,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
-	getSettingsListTheme
+	getSettingsListTheme,
+	type Theme
 } from "@earendil-works/pi-coding-agent"
 import type { AutocompleteItem, TUI } from "@earendil-works/pi-tui"
 import {
@@ -21,6 +22,9 @@ import {
 } from "@earendil-works/pi-tui"
 
 const RUN_TOOL_MESSAGE_TYPE = "lovely-dev-tools.run-tool"
+const SYSTEM_PROMPT_MESSAGE_TYPE = "lovely-dev-tools.system-prompt"
+const TOOL_SCHEMAS_MESSAGE_TYPE = "lovely-dev-tools.tool-schemas"
+const HIDDEN_MESSAGE_TYPES = new Set([RUN_TOOL_MESSAGE_TYPE, SYSTEM_PROMPT_MESSAGE_TYPE, TOOL_SCHEMAS_MESSAGE_TYPE])
 const OMIT = Symbol("omit")
 const OMIT_LABEL = "<omit>"
 
@@ -721,6 +725,52 @@ function resultText(result: AgentToolResult<unknown>) {
 		.join("\n")
 }
 
+function formatCollapsibleMessage(title: string, content: string, expanded: boolean, theme: Theme) {
+	const lineCount = content.length === 0 ? 0 : content.split("\n").length
+	const header = expanded
+		? `${theme.fg("accent", theme.bold(title))}${theme.fg("dim", " (Ctrl+o to collapse)")}`
+		: `${theme.fg("accent", theme.bold(title))}${theme.fg("dim", ` (${lineCount} lines, Ctrl+o to expand)`)}`
+	const text = expanded ? `${header}\n\n${content}` : header
+	const box = new Box(1, 1, value => theme.bg("customMessageBg", value))
+	box.addChild(new Text(text, 0, 0))
+	return box
+}
+
+function formatSchemaType(schema: Schema | undefined): string {
+	if (!schema) return "any"
+	if (schema.const !== undefined) return JSON.stringify(schema.const)
+	if (Array.isArray(schema.enum)) return schema.enum.map(value => JSON.stringify(value)).join(" | ")
+	if (Array.isArray(schema.anyOf)) return schema.anyOf.map(option => formatSchemaType(asSchema(option))).join(" | ")
+	if (Array.isArray(schema.oneOf)) return schema.oneOf.map(option => formatSchemaType(asSchema(option))).join(" | ")
+	if (schema.items) return `${formatSchemaType(asSchema(schema.items))}[]`
+	if (Array.isArray(schema.type)) return schema.type.join(" | ")
+	if (typeof schema.type === "string") return schema.type
+	return "any"
+}
+
+function formatToolSchemas(tools: ToolInfo[]): string {
+	if (tools.length === 0) return "No active tools."
+	return tools
+		.map(tool => {
+			const parameters = asSchema(tool.parameters)
+			const properties = asSchema(parameters?.properties)
+			const required = new Set(Array.isArray(parameters?.required) ? parameters.required.filter(name => typeof name === "string") : [])
+			const parameterNames = properties ? Object.keys(properties) : []
+			const header = `${tool.name} - ${tool.description}`
+			if (parameterNames.length === 0) return `${header}\n  (no parameters)`
+			const params = parameterNames
+				.map(name => {
+					const property = asSchema(properties?.[name])
+					const presence = required.has(name) ? "required" : "optional"
+					const description = property?.description ? ` - ${property.description}` : ""
+					return `  ${name}: ${formatSchemaType(property)} [${presence}]${description}`
+				})
+				.join("\n")
+			return `${header}\n${params}`
+		})
+		.join("\n\n")
+}
+
 function splitCommandArgs(args: string) {
 	const parts: string[] = []
 	let current = ""
@@ -795,11 +845,22 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 		}
 		return container
 	})
+	pi.registerMessageRenderer(SYSTEM_PROMPT_MESSAGE_TYPE, (message, { expanded }, theme) =>
+		formatCollapsibleMessage("System prompt", typeof message.content === "string" ? message.content : "", expanded, theme)
+	)
+	pi.registerMessageRenderer(TOOL_SCHEMAS_MESSAGE_TYPE, (message, { expanded }, theme) =>
+		formatCollapsibleMessage("Available tools", typeof message.content === "string" ? message.content : "", expanded, theme)
+	)
+
+	pi.on("session_before_tree", (event, ctx) => {
+		const entry = ctx.sessionManager.getEntry(event.preparation.targetId)
+		if (entry?.type === "custom_message" && HIDDEN_MESSAGE_TYPES.has(entry.customType)) return { cancel: true }
+	})
 
 	pi.on("context", event => ({
 		messages: event.messages.filter(message => {
 			if (!isRecord(message) || message.role !== "custom") return true
-			return message.customType !== RUN_TOOL_MESSAGE_TYPE
+			return !HIDDEN_MESSAGE_TYPES.has(message.customType)
 		})
 	}))
 
@@ -906,6 +967,20 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 				})
 				return
 			}
+		}
+	})
+
+	pi.registerCommand("show-sysprompt", {
+		description: "Show the effective system prompt and active tool schemas.",
+		async handler(_args, ctx) {
+			await ctx.waitForIdle()
+			const activeTools = new Set(pi.getActiveTools())
+			pi.sendMessage({ customType: SYSTEM_PROMPT_MESSAGE_TYPE, content: ctx.getSystemPrompt(), display: true })
+			pi.sendMessage({
+				customType: TOOL_SCHEMAS_MESSAGE_TYPE,
+				content: formatToolSchemas(pi.getAllTools().filter(tool => activeTools.has(tool.name))),
+				display: true
+			})
 		}
 	})
 }

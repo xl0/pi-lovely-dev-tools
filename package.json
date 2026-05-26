@@ -44,6 +44,7 @@
 	"pi": {
 		"extensions": [
 			"./extensions"
-		]
+		],
+		"video": "https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/demo.mp4"
 	}
 }
