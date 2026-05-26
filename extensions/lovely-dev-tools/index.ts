@@ -961,7 +961,18 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 					result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], details: undefined }
 				}
 
-				result = await convertResultImagesForTerminal(result)
+				try {
+					result = await convertResultImagesForTerminal(result)
+				} catch (error) {
+					isError = true
+					result = {
+						...result,
+						content: [
+							...result.content,
+							{ type: "text", text: `Image conversion failed: ${error instanceof Error ? error.message : String(error)}` }
+						]
+					}
+				}
 				elapsedDone = true
 				ctx.ui.setWidget("tool-loading", undefined)
 
