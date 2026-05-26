@@ -657,8 +657,8 @@ async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo): Promi
 						const current = valueLabel(hasAt(args, row.path) ? getAt(args, row.path) : OMIT)
 						setRowValueFromLabel(row, choices[(choices.indexOf(current) + 1) % choices.length] ?? choices[0] ?? "null")
 					} else handleActiveInput(data)
-				} else if ((data === "+" || data === "=") && !activeInput) addArrayItemForSelection()
-				else if (data === "-" && !activeInput) removeSelectedArrayItem()
+				} else if (data === "+" || data === "=") addArrayItemForSelection()
+				else if (data === "-") removeSelectedArrayItem()
 				else if (kb.matches(data, "tui.select.cancel")) done(undefined)
 				else if (focusPart === "value") handleActiveInput(data)
 			}
