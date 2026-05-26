@@ -704,9 +704,15 @@ async function convertResultImagesForTerminal(result: AgentToolResult<unknown>):
 	if (getCapabilities().images !== "kitty") return result
 	const content = await Promise.all(
 		result.content.map(async part => {
-			if (part.type !== "image" || part.mimeType === "image/png") return part
-			const converted = await convertToPng(part.data, part.mimeType)
-			return converted ? { ...part, data: converted.data, mimeType: converted.mimeType } : part
+			if (part.type !== "image") return part
+			const image = part as { data?: string; mimeType?: string; source?: { data?: string; media_type?: string } }
+			const data = image.data ?? image.source?.data
+			const mimeType = image.mimeType ?? image.source?.media_type
+			if (!data || !mimeType || mimeType === "image/png") return part
+			const converted = await convertToPng(data, mimeType)
+			if (!converted) return part
+			if (image.data) return { ...part, data: converted.data, mimeType: converted.mimeType }
+			return { ...part, source: { ...image.source, data: converted.data, media_type: converted.mimeType } }
 		})
 	)
 	return { ...result, content }
