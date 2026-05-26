@@ -32,6 +32,7 @@ The `context` hook filters these custom messages out of LLM context while keepin
 - arrays render as group rows with item counts
 - `+` on an array inserts at index 0; `+` on an item inserts after it; `-` removes items
 - array object items render as `[n]` rows with indented property rows
+- `+` / `-` array item shortcuts work from array rows and their child rows
 - booleans and enums/literal unions cycle with Space from the value cell
 - scalar and unstructured object/array leaves edit inline with a single-line `Input`
 - string drafts are JSON-quoted while editing
@@ -50,7 +51,7 @@ While running, a `tool-loading` widget shows the pending call. On completion, a 
 - errors use `toolErrorBg`
 - success uses `toolSuccessBg`
 
-`resultText()` renders text blocks directly and non-text blocks as placeholders. Image result blocks currently render both a text placeholder and, when the terminal supports images, an inline image. Non-PNG top-level image blocks are converted with Pi's `convertToPng()` before storing results for Kitty-compatible terminals.
+`resultText()` renders text blocks directly and non-text blocks as placeholders. Image result blocks currently render both a text placeholder and, when the terminal supports images, an inline image. Non-PNG image blocks (top-level or `source`-shaped) are converted with Pi's `convertToPng()` before storing results for Kitty-compatible terminals. Conversion failures turn the displayed `/tool` result into an explicit error message.
 
 ### `/show-sysprompt`
 
