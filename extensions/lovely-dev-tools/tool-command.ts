@@ -1,0 +1,297 @@
+import {
+	type AgentToolResult,
+	convertToPng,
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	getSettingsListTheme,
+	type ToolInfo
+} from "@earendil-works/pi-coding-agent"
+import type { AutocompleteItem, TUI } from "@earendil-works/pi-tui"
+import {
+	Box,
+	Container,
+	fuzzyFilter,
+	getCapabilities,
+	getKeybindings,
+	Image,
+	Input,
+	Spacer,
+	Text,
+	truncateToWidth,
+	visibleWidth
+} from "@earendil-works/pi-tui"
+import { editToolArgs } from "./arg-editor"
+import { isRunToolDetails, RUN_TOOL_MESSAGE_TYPE, type RunToolDetails } from "./messages"
+import { asSchema, coerceValue, formatArgs, type Schema } from "./schema"
+
+async function selectTool(ctx: ExtensionCommandContext, tools: ToolInfo[], activeTools: Set<string>) {
+	return ctx.ui.custom<ToolInfo | undefined>((_tui, theme, _keybindings, done) => {
+		const listTheme = getSettingsListTheme()
+		const searchInput = new Input()
+		searchInput.focused = true
+		let filteredTools = tools
+		let selectedIndex = 0
+
+		const applyFilter = () => {
+			const query = searchInput.getValue()
+			filteredTools = query ? fuzzyFilter(tools, query, tool => tool.name) : tools
+			selectedIndex = 0
+		}
+
+		return {
+			render: (width: number) => {
+				const inputLines = searchInput.render(width)
+				const lines = [theme.fg("accent", theme.bold("Tool:")), ...(inputLines[0] ? inputLines : []), ""]
+				if (filteredTools.length === 0) {
+					lines.push(listTheme.hint("  No matching tools"), "", listTheme.hint("  Type to search · Enter select · Esc cancel"))
+					return lines
+				}
+
+				const maxVisible = Math.min(14, filteredTools.length)
+				const startIndex = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), filteredTools.length - maxVisible))
+				const endIndex = Math.min(startIndex + maxVisible, filteredTools.length)
+				for (let index = startIndex; index < endIndex; index++) {
+					const tool = filteredTools[index]
+					if (!tool) continue
+					const isSelected = index === selectedIndex
+					const prefix = isSelected ? listTheme.cursor : "  "
+					const state = activeTools.has(tool.name) ? "active" : "inactive"
+					const name = listTheme.label(tool.name, isSelected)
+					const descriptionWidth = Math.max(1, width - visibleWidth(prefix) - visibleWidth(tool.name) - state.length - 8)
+					const description = theme.fg("dim", truncateToWidth(tool.description, descriptionWidth, ""))
+					lines.push(truncateToWidth(`${prefix}${name} ${theme.fg("dim", `(${state})`)}  ${description}`, width))
+				}
+				if (startIndex > 0 || endIndex < filteredTools.length)
+					lines.push(listTheme.hint(`  (${selectedIndex + 1}/${filteredTools.length})`))
+				else lines.push("")
+				lines.push("", listTheme.hint("  Type to search · Enter select · Esc cancel"))
+				return lines
+			},
+			invalidate: () => searchInput.invalidate(),
+			handleInput: (data: string) => {
+				const kb = getKeybindings()
+				if (kb.matches(data, "tui.select.up")) {
+					if (filteredTools.length === 0) return
+					selectedIndex = selectedIndex === 0 ? filteredTools.length - 1 : selectedIndex - 1
+				} else if (kb.matches(data, "tui.select.down")) {
+					if (filteredTools.length === 0) return
+					selectedIndex = selectedIndex === filteredTools.length - 1 ? 0 : selectedIndex + 1
+				} else if (kb.matches(data, "tui.select.confirm") || kb.matches(data, "tui.input.submit")) done(filteredTools[selectedIndex])
+				else if (kb.matches(data, "tui.select.cancel")) done(undefined)
+				else {
+					const sanitized = data.replace(/ /g, "")
+					if (!sanitized) return
+					searchInput.handleInput(sanitized)
+					applyFilter()
+				}
+			}
+		}
+	})
+}
+
+function imageParts(result: AgentToolResult<unknown>) {
+	return result.content.flatMap(part => {
+		if (part.type !== "image") return []
+		const image = part as { data?: string; mimeType?: string; source?: { data?: string; media_type?: string } }
+		const data = image.data ?? image.source?.data
+		const mimeType = image.mimeType ?? image.source?.media_type
+		return data && mimeType ? [{ data, mimeType }] : []
+	})
+}
+
+async function convertResultImagesForTerminal(result: AgentToolResult<unknown>): Promise<AgentToolResult<unknown>> {
+	if (getCapabilities().images !== "kitty") return result
+	const content = await Promise.all(
+		result.content.map(async part => {
+			if (part.type !== "image") return part
+			const image = part as { data?: string; mimeType?: string; source?: { data?: string; media_type?: string } }
+			const data = image.data ?? image.source?.data
+			const mimeType = image.mimeType ?? image.source?.media_type
+			if (!data || !mimeType || mimeType === "image/png") return part
+			const converted = await convertToPng(data, mimeType)
+			if (!converted) return part
+			if (image.data) return { ...part, data: converted.data, mimeType: converted.mimeType }
+			return { ...part, source: { ...image.source, data: converted.data, media_type: converted.mimeType } }
+		})
+	)
+	return { ...result, content }
+}
+
+function resultText(result: AgentToolResult<unknown>) {
+	return result.content
+		.map(part => {
+			if (part.type === "text") return part.text
+			if (part.type === "image") {
+				const image = part as { mimeType?: string; source?: { media_type?: string } }
+				return `[image: ${image.mimeType ?? image.source?.media_type ?? "unknown"}]`
+			}
+			return `[${(part as { type: string }).type}]`
+		})
+		.join("\n")
+}
+
+function splitCommandArgs(args: string) {
+	const parts: string[] = []
+	let current = ""
+	let quote: string | undefined
+	let escaped = false
+	for (const char of args) {
+		if (escaped) {
+			current += char
+			escaped = false
+		} else if (char === "\\") escaped = true
+		else if (quote) {
+			if (char === quote) quote = undefined
+			else current += char
+		} else if (char === '"' || char === "'") quote = char
+		else if (/\s/.test(char)) {
+			if (current) {
+				parts.push(current)
+				current = ""
+			}
+		} else current += char
+	}
+	if (escaped) current += "\\"
+	if (current) parts.push(current)
+	return parts
+}
+
+function coerceFlatArg(text: string, schema: Schema | undefined): unknown | undefined {
+	if (schema?.type === "string") return text
+	return coerceValue(text, schema)
+}
+
+function flatToolArgs(tool: ToolInfo, values: string[]): Record<string, unknown> | undefined {
+	const parameters = asSchema(tool.parameters)
+	const properties = asSchema(parameters?.properties)
+	if (!properties) return values.length === 0 ? {} : undefined
+	const args: Record<string, unknown> = {}
+	const entries = Object.entries(properties)
+	if (values.length > entries.length) return undefined
+	for (let index = 0; index < values.length; index++) {
+		const [name, rawSchema] = entries[index] ?? []
+		if (!name) return undefined
+		const schema = asSchema(rawSchema)
+		const value = coerceFlatArg(values[index] ?? "", schema)
+		if (value === undefined) return undefined
+		args[name] = value
+	}
+	return args
+}
+
+export function registerToolCommand(pi: ExtensionAPI) {
+	pi.registerMessageRenderer(RUN_TOOL_MESSAGE_TYPE, (message, _state, theme) => {
+		const details = isRunToolDetails(message.details) ? message.details : undefined
+		if (!details) {
+			const box = new Box(1, 1, value => theme.bg("customMessageBg", value))
+			box.addChild(new Text("Tool run", 0, 0))
+			return box
+		}
+		const callLine = `Tool: ${theme.fg("toolTitle", theme.bold(`${details.toolName}(${formatArgs(details.toolArgs)})`))}`
+		const output = resultText(details.result)
+		const body = output ? `${callLine}\n\n${theme.fg("toolOutput", output)}` : callLine
+		const box = new Box(1, 1, value => theme.bg(details.isError ? "toolErrorBg" : "toolSuccessBg", value))
+		box.addChild(new Text(body, 0, 0))
+		const images = imageParts(details.result)
+		if (images.length === 0 || !getCapabilities().images) return box
+		const container = new Container()
+		container.addChild(box)
+		for (const image of images) {
+			container.addChild(new Spacer(1))
+			container.addChild(
+				new Image(image.data, image.mimeType, { fallbackColor: value => theme.fg("toolOutput", value) }, { maxWidthCells: 60 })
+			)
+		}
+		return container
+	})
+
+	pi.registerCommand("tool", {
+		description: "Run a tool. Usage: /tool [tool_name] [flat args...]",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			if (/\s/.test(prefix)) return null
+			const tools = [...pi.getAllTools()].sort((a: ToolInfo, b: ToolInfo) => a.name.localeCompare(b.name))
+			const filtered = fuzzyFilter(tools, prefix, tool => tool.name)
+			if (filtered.length === 0) return null
+			return filtered.map(tool => ({ value: `${tool.name} `, label: tool.name, description: tool.description }))
+		},
+		async handler(args, ctx) {
+			if (!ctx.hasUI) {
+				ctx.ui.notify("/tool needs interactive UI.", "warning")
+				return
+			}
+
+			await ctx.waitForIdle()
+
+			const tools = [...pi.getAllTools()].sort((a: ToolInfo, b: ToolInfo) => a.name.localeCompare(b.name))
+			if (tools.length === 0) {
+				ctx.ui.notify("No tools available.", "warning")
+				return
+			}
+
+			const activeTools = new Set(pi.getActiveTools())
+			const parts = splitCommandArgs(args)
+			const initialTool = parts[0] ? tools.find(tool => tool.name === parts[0]) : undefined
+			let selectedTool = initialTool
+			let initialToolArgs = initialTool && parts.length > 1 ? flatToolArgs(initialTool, parts.slice(1)) : undefined
+			if (initialTool && parts.length > 1 && !initialToolArgs) {
+				ctx.ui.notify(`Could not parse flat args for ${initialTool.name}. Opening editor.`, "warning")
+			}
+
+			while (true) {
+				selectedTool ??= await selectTool(ctx, tools, activeTools)
+				if (!selectedTool) return
+
+				const toolArgs = initialToolArgs ?? (await editToolArgs(ctx, selectedTool))
+				initialToolArgs = undefined
+				if (!toolArgs) {
+					if (initialTool) return
+					selectedTool = undefined
+					continue
+				}
+
+				const toolName = selectedTool.name
+				ctx.ui.setWidget("tool-loading", (_tui: TUI, theme) => {
+					const callLine = theme.fg("toolTitle", theme.bold(`${toolName}(${formatArgs(toolArgs)})`))
+					const text = new Text(`${callLine}\n${theme.fg("toolOutput", "Tool is running...")}`, 0, 0)
+					const box = new Box(1, 1, value => theme.bg("toolPendingBg", value))
+					box.addChild(text)
+					return box
+				})
+
+				const now = Date.now()
+				const toolCallId = `run_tool_${now}`
+
+				let result: AgentToolResult<unknown>
+				let isError = false
+				try {
+					result = await selectedTool.execute(toolCallId, toolArgs, undefined, undefined, ctx)
+				} catch (error) {
+					isError = true
+					result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], details: undefined }
+				}
+
+				try {
+					result = await convertResultImagesForTerminal(result)
+				} catch (error) {
+					isError = true
+					result = {
+						...result,
+						content: [
+							...result.content,
+							{ type: "text", text: `Image conversion failed: ${error instanceof Error ? error.message : String(error)}` }
+						]
+					}
+				}
+				ctx.ui.setWidget("tool-loading", undefined)
+
+				pi.sendMessage({
+					customType: RUN_TOOL_MESSAGE_TYPE,
+					content: resultText(result),
+					display: true,
+					details: { toolName, toolArgs, toolCallId, result, isError, timestamp: Date.now() } satisfies RunToolDetails
+				})
+				return
+			}
+		}
+	})
+}

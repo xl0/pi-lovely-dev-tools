@@ -1,0 +1,29 @@
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent"
+import { isRecord } from "./schema"
+
+export const RUN_TOOL_MESSAGE_TYPE = "lovely-dev-tools.run-tool"
+export const SYSTEM_PROMPT_MESSAGE_TYPE = "lovely-dev-tools.system-prompt"
+export const TOOL_SCHEMAS_MESSAGE_TYPE = "lovely-dev-tools.tool-schemas"
+export const HIDDEN_MESSAGE_TYPES = new Set([RUN_TOOL_MESSAGE_TYPE, SYSTEM_PROMPT_MESSAGE_TYPE, TOOL_SCHEMAS_MESSAGE_TYPE])
+
+export type RunToolDetails = {
+	toolName: string
+	toolArgs: Record<string, unknown>
+	toolCallId: string
+	result: AgentToolResult<unknown>
+	isError: boolean
+	timestamp: number
+}
+
+export function isRunToolDetails(value: unknown): value is RunToolDetails {
+	if (!isRecord(value)) return false
+	const details = value as Partial<RunToolDetails>
+	return (
+		typeof details.toolName === "string" &&
+		isRecord(details.toolArgs) &&
+		typeof details.toolCallId === "string" &&
+		isRecord(details.result) &&
+		typeof details.isError === "boolean" &&
+		typeof details.timestamp === "number"
+	)
+}
