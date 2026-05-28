@@ -5,7 +5,12 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 ## Structure
 
 - `package.json`: npm/pi package manifest. Pi loads `./extensions` and links `assets/demo.mp4` through `pi.video` using a raw GitHub URL. `assets/` is intentionally excluded from published npm files.
-- `extensions/lovely-dev-tools/index.ts`: extension entrypoint. Registers `/tool` and `/show-sysprompt`.
+- `extensions/lovely-dev-tools/index.ts`: small extension entrypoint. Registers command modules and hidden-message filters.
+- `extensions/lovely-dev-tools/messages.ts`: custom message type constants, hidden message set, `/tool` message details guard.
+- `extensions/lovely-dev-tools/schema.ts`: shared JSON-schema helpers for defaults, enum/type display, value coercion, argument formatting, and text wrapping.
+- `extensions/lovely-dev-tools/arg-editor.ts`: schema-driven interactive `/tool` argument editor.
+- `extensions/lovely-dev-tools/tool-command.ts`: `/tool` selector, flat arg parsing, execution, result/image rendering.
+- `extensions/lovely-dev-tools/show-sysprompt.ts`: `/show-sysprompt` command and collapsible renderers.
 - `assets/demo.mp4`: source demo video kept in repo, not shipped in npm package.
 - `assets/demo.gif`: npm/GitHub-compatible README demo preview kept in repo, not shipped in npm package.
 - `tsconfig.json`, `biome.json`: strict TypeScript and Biome config.
@@ -34,7 +39,7 @@ The `context` hook filters these custom messages out of LLM context while keepin
 - array object items render as `[n]` rows with indented property rows
 - `+` / `-` array item shortcuts work from array rows and their child rows
 - booleans and enums/literal unions cycle with Space from the value cell
-- scalar and unstructured object/array leaves edit inline with a single-line `Input`
+- scalar leaves edit inline with a single-line `Input`; structured objects/arrays render as group rows
 - string drafts are JSON-quoted while editing
 - tool description and selected-row schema/help are shown in a fixed-height top panel
 
