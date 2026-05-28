@@ -1,4 +1,4 @@
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent"
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { isRecord } from "./schema"
 
 export const RUN_TOOL_MESSAGE_TYPE = "lovely-dev-tools.run-tool"
@@ -26,4 +26,18 @@ export function isRunToolDetails(value: unknown): value is RunToolDetails {
 		typeof details.isError === "boolean" &&
 		typeof details.timestamp === "number"
 	)
+}
+
+export function registerHiddenMessageFilters(pi: ExtensionAPI) {
+	pi.on("session_before_tree", (event, ctx) => {
+		const entry = ctx.sessionManager.getEntry(event.preparation.targetId)
+		if (entry?.type === "custom_message" && HIDDEN_MESSAGE_TYPES.has(entry.customType)) return { cancel: true }
+	})
+
+	pi.on("context", event => ({
+		messages: event.messages.filter(message => {
+			if (!isRecord(message) || message.role !== "custom") return true
+			return !HIDDEN_MESSAGE_TYPES.has(message.customType)
+		})
+	}))
 }
