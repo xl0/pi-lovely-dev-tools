@@ -44,7 +44,7 @@ Escape returns to tool selection/cancel. Enter runs.
 
 ## Tool execution and rendering
 
-Tool execution uses `ctx.getToolDefinition(name)` and calls `definition.execute(toolCallId, toolArgs, undefined, undefined, ctx)`. Thrown errors become text `AgentToolResult`s with `isError: true`.
+Tool execution uses the selected `ToolInfo` from `pi.getAllTools()` and calls `tool.execute(toolCallId, toolArgs, undefined, undefined, ctx)`. Thrown errors become text `AgentToolResult`s with `isError: true`.
 
 While running, a `tool-loading` widget shows the pending call. On completion, a `lovely-dev-tools.run-tool` renderer shows the completed call and raw result output:
 
