@@ -49,21 +49,21 @@ export function schemaEnum(schema: Schema): unknown[] | undefined {
 	return values?.every(value => value !== undefined) ? values : undefined
 }
 
-export function schemaType(schema: Schema | undefined): string {
+export function formatSchemaType(schema: Schema | undefined): string {
 	if (!schema) return "any"
 	if ("const" in schema) return JSON.stringify(schema.const)
 	const enumValues = schemaEnum(schema)
 	if (enumValues) return enumValues.map(value => JSON.stringify(value)).join(" | ")
 	const variants = schemaArray(schema.anyOf) ?? schemaArray(schema.oneOf)
-	if (variants) return variants.map(schemaType).join(" | ")
+	if (variants) return variants.map(formatSchemaType).join(" | ")
 	const items = asSchema(schema.items)
-	if (items) return `${schemaType(items)}[]`
+	if (items) return `${formatSchemaType(items)}[]`
 	const type = schema.type
 	if (Array.isArray(type)) return type.join(" | ")
 	return typeof type === "string" ? type : "any"
 }
 
-export function schemaDescription(schema: Schema | undefined) {
+export function getSchemaDescription(schema: Schema | undefined) {
 	return typeof schema?.description === "string" ? schema.description : undefined
 }
 
@@ -72,22 +72,22 @@ function cloneSchemaValue(value: unknown): unknown {
 	return JSON.parse(JSON.stringify(value)) as unknown
 }
 
-export function objectSchemaHasProperties(schema: Schema | undefined) {
+export function hasObjectSchemaProperties(schema: Schema | undefined) {
 	return !!asSchema(schema?.properties)
 }
 
-export function defaultObjectValue(schema: Schema | undefined): Record<string, unknown> {
+export function defaultObjectArgs(schema: Schema | undefined): Record<string, unknown> {
 	const object: Record<string, unknown> = {}
 	const properties = asSchema(schema?.properties)
 	const required = new Set(schemaStringArray(schema?.required) ?? [])
 	if (!properties) return object
 	for (const [name, rawSchema] of Object.entries(properties)) {
-		if (required.has(name)) object[name] = defaultValue(asSchema(rawSchema), true)
+		if (required.has(name)) object[name] = defaultArgValue(asSchema(rawSchema), true)
 	}
 	return object
 }
 
-export function defaultValue(schema: Schema | undefined, seedArray: boolean): unknown {
+export function defaultArgValue(schema: Schema | undefined, seedArray: boolean): unknown {
 	if (!schema) return null
 	if ("default" in schema) return cloneSchemaValue(schema.default)
 	if ("const" in schema) return cloneSchemaValue(schema.const)
@@ -97,26 +97,26 @@ export function defaultValue(schema: Schema | undefined, seedArray: boolean): un
 	if (type === "string") return ""
 	if (type === "number" || type === "integer") return 0
 	if (type === "boolean") return false
-	if (type === "object" || objectSchemaHasProperties(schema)) return defaultObjectValue(schema)
+	if (type === "object" || hasObjectSchemaProperties(schema)) return defaultObjectArgs(schema)
 	if (type === "array") {
 		const items = asSchema(schema.items)
-		return seedArray && items ? [defaultValue(items, false)] : []
+		return seedArray && items ? [defaultArgValue(items, false)] : []
 	}
 	return null
 }
 
-export function valueLabel(value: ArgValue) {
+export function formatArgValue(value: ArgValue) {
 	if (value === OMIT) return OMIT_LABEL
 	const json = JSON.stringify(value)
 	return json === undefined ? "undefined" : json
 }
 
-export function inputValue(value: ArgValue) {
+export function formatInputValue(value: ArgValue) {
 	if (value === OMIT) return ""
-	return valueLabel(value)
+	return formatArgValue(value)
 }
 
-export function coerceValue(text: string, schema: Schema | undefined): ArgValue | undefined {
+export function coerceArgValue(text: string, schema: Schema | undefined): ArgValue | undefined {
 	const type = schema?.type
 	if (type === "string") {
 		const parsed = parseJsonValue(text.trim())
@@ -135,7 +135,7 @@ export function coerceValue(text: string, schema: Schema | undefined): ArgValue 
 	return parsed
 }
 
-export function formatArgs(args: Record<string, unknown>) {
+export function formatToolArgs(args: Record<string, unknown>) {
 	return Object.entries(args)
 		.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
 		.join(", ")

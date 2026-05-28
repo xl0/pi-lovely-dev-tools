@@ -22,7 +22,7 @@ import {
 } from "@earendil-works/pi-tui"
 import { editToolArgs } from "./arg-editor"
 import { isRunToolDetails, RUN_TOOL_MESSAGE_TYPE, type RunToolDetails } from "./messages"
-import { asSchema, coerceValue, formatArgs, type Schema } from "./schema"
+import { asSchema, coerceArgValue, formatToolArgs, type Schema } from "./schema"
 
 async function selectTool(ctx: ExtensionCommandContext, tools: ToolInfo[], activeTools: Set<string>) {
 	return ctx.ui.custom<ToolInfo | undefined>((_tui, theme, _keybindings, done) => {
@@ -158,7 +158,7 @@ function splitCommandArgs(args: string) {
 
 function coerceFlatArg(text: string, schema: Schema | undefined): unknown | undefined {
 	if (schema?.type === "string") return text
-	return coerceValue(text, schema)
+	return coerceArgValue(text, schema)
 }
 
 function flatToolArgs(tool: ToolInfo, values: string[]): Record<string, unknown> | undefined {
@@ -187,7 +187,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 			box.addChild(new Text("Tool run", 0, 0))
 			return box
 		}
-		const callLine = `Tool: ${theme.fg("toolTitle", theme.bold(`${details.toolName}(${formatArgs(details.toolArgs)})`))}`
+		const callLine = `Tool: ${theme.fg("toolTitle", theme.bold(`${details.toolName}(${formatToolArgs(details.toolArgs)})`))}`
 		const output = resultText(details.result)
 		const body = output ? `${callLine}\n\n${theme.fg("toolOutput", output)}` : callLine
 		const box = new Box(1, 1, value => theme.bg(details.isError ? "toolErrorBg" : "toolSuccessBg", value))
@@ -251,7 +251,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 
 				const toolName = selectedTool.name
 				ctx.ui.setWidget("tool-loading", (_tui: TUI, theme) => {
-					const callLine = theme.fg("toolTitle", theme.bold(`${toolName}(${formatArgs(toolArgs)})`))
+					const callLine = theme.fg("toolTitle", theme.bold(`${toolName}(${formatToolArgs(toolArgs)})`))
 					const text = new Text(`${callLine}\n${theme.fg("toolOutput", "Tool is running...")}`, 0, 0)
 					const box = new Box(1, 1, value => theme.bg("toolPendingBg", value))
 					box.addChild(text)

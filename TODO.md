@@ -6,7 +6,7 @@
 - [ ] Store row depth separately from row label.
 - [ ] Replace `arrayPath` / `arrayIndex` with one `arrayContext` object.
 - [x] Move hidden-message filters into `messages.ts`.
-- [ ] Rename schema/arg helpers for clearer intent.
+- [x] Rename schema/arg helpers for clearer intent.
 - [ ] Show a notification when terminal image conversion returns `null`.
 - [ ] Pre-seed the tool selector when `/tool <unknown>` is entered.
 
