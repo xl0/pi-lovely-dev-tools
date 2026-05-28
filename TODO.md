@@ -2,9 +2,9 @@
 
 ## Current cleanup plan
 
-- [ ] Refactor argument editor state into explicit `EditorState`.
-- [ ] Store row depth separately from row label.
-- [ ] Replace `arrayPath` / `arrayIndex` with one `arrayContext` object.
+- [x] Refactor argument editor state into explicit `EditorState`.
+- [x] Store row depth separately from row label.
+- [x] Replace `arrayPath` / `arrayIndex` with one `arrayContext` object.
 - [x] Move hidden-message filters into `messages.ts`.
 - [x] Rename schema/arg helpers for clearer intent.
 - [ ] Show a notification when terminal image conversion returns `null`.

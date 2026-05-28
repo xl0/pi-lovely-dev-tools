@@ -26,14 +26,22 @@ type ArgRow = {
 	kind: ArgRowKind
 	path: ArgPath
 	label: string
+	depth: number
 	schema: Schema | undefined
 	required: boolean
-	arrayPath?: ArgPath
-	arrayIndex?: number
+	arrayContext?: ArrayContext
 }
 type ArrayContext = {
-	arrayPath: ArgPath
-	arrayIndex: number
+	path: ArgPath
+	index: number
+}
+
+type EditorState = {
+	args: Record<string, unknown>
+	rows: ArgRow[]
+	selectedIndex: number
+	focusPart: "include" | "value"
+	activeInput: Input | undefined
 }
 
 function pathLabel(path: ArgPath) {
@@ -126,8 +134,8 @@ function getArrayAt(root: unknown, path: ArgPath) {
 	return Array.isArray(value) ? value : undefined
 }
 
-function makeRow(row: Omit<ArgRow, "arrayPath" | "arrayIndex">, arrayContext?: ArrayContext): ArgRow {
-	return arrayContext ? { ...row, arrayPath: arrayContext.arrayPath, arrayIndex: arrayContext.arrayIndex } : row
+function makeRow(row: Omit<ArgRow, "arrayContext">, arrayContext?: ArrayContext): ArgRow {
+	return arrayContext ? { ...row, arrayContext } : row
 }
 
 function buildObjectRows(
@@ -146,7 +154,8 @@ function buildObjectRows(
 		const propertyPath = [...path, name]
 		const base = {
 			path: propertyPath,
-			label: `${"  ".repeat(depth)}${name}`,
+			label: name,
+			depth,
 			schema: propertySchema,
 			required: required.has(name)
 		}
@@ -167,15 +176,15 @@ function buildArrayRows(schema: Schema | undefined, args: Record<string, unknown
 	const items = asSchema(schema?.items)
 	for (let index = 0; index < array.length; index++) {
 		const itemPath = [...arrayPath, index]
-		const arrayContext = { arrayPath, arrayIndex: index }
-		const label = `${"  ".repeat(depth)}[${index}]`
+		const arrayContext = { path: arrayPath, index }
+		const label = `[${index}]`
 		if (items?.type === "array") {
-			rows.push(makeRow({ kind: "array", path: itemPath, label, schema: items, required: true }, arrayContext))
+			rows.push(makeRow({ kind: "array", path: itemPath, label, depth, schema: items, required: true }, arrayContext))
 			rows.push(...buildArrayRows(items, args, itemPath, depth + 1))
 		} else if (items?.type === "object" || hasObjectSchemaProperties(items)) {
-			rows.push(makeRow({ kind: "item", path: itemPath, label, schema: items, required: true }, arrayContext))
+			rows.push(makeRow({ kind: "item", path: itemPath, label, depth, schema: items, required: true }, arrayContext))
 			rows.push(...buildObjectRows(items, args, itemPath, depth + 1, arrayContext))
-		} else rows.push(makeRow({ kind: "field", path: itemPath, label, schema: items, required: true }, arrayContext))
+		} else rows.push(makeRow({ kind: "field", path: itemPath, label, depth, schema: items, required: true }, arrayContext))
 	}
 	return rows
 }
@@ -211,12 +220,15 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 
 	return ctx.ui.custom<Record<string, unknown> | undefined>((_tui, theme, _keybindings, done) => {
 		const listTheme = getSettingsListTheme()
-		let rows = initialRows
-		let selectedIndex = 0
-		let focusPart: "include" | "value" = "value"
-		let activeInput: Input | undefined
+		const state: EditorState = {
+			args,
+			rows: initialRows,
+			selectedIndex: 0,
+			focusPart: "value",
+			activeInput: undefined
+		}
 
-		const selectedRow = () => rows[selectedIndex]
+		const selectedRow = () => state.rows[state.selectedIndex]
 		const rowCanInclude = (row: ArgRow) => row.kind !== "item" && !row.required
 		const rowIncluded = (row: ArgRow) => row.kind === "item" || row.required || hasAt(args, row.path)
 		const rowChoices = (row: ArgRow | undefined) => {
@@ -239,36 +251,36 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 		const renderInput = (input: Input, width: number) => input.render(width + 2)[0]?.slice(2) ?? ""
 		const updateFocus = () => {
 			const row = selectedRow()
-			focusPart = row && rowCanInclude(row) && !rowIncluded(row) ? "include" : "value"
+			state.focusPart = row && rowCanInclude(row) && !rowIncluded(row) ? "include" : "value"
 		}
 		const updateActiveInput = () => {
 			const row = selectedRow()
 			if (!row || row.kind !== "field" || rowChoices(row) || !rowIncluded(row)) {
-				activeInput = undefined
+				state.activeInput = undefined
 				return
 			}
 			const input = new Input()
 			input.setValue(formatInputValue(hasAt(args, row.path) ? getAt(args, row.path) : OMIT))
 			setInputCursor(input, row.schema?.type === "string" ? Math.max(1, input.getValue().length - 1) : input.getValue().length)
 			input.focused = true
-			activeInput = input
+			state.activeInput = input
 		}
 		const refreshRows = () => {
-			rows = buildObjectRows(parameters, args)
-			if (selectedIndex >= rows.length) selectedIndex = Math.max(0, rows.length - 1)
+			state.rows = buildObjectRows(parameters, args)
+			if (state.selectedIndex >= state.rows.length) state.selectedIndex = Math.max(0, state.rows.length - 1)
 			updateActiveInput()
 			updateFocus()
 		}
 		const selectPath = (path: ArgPath) => {
-			const index = rows.findIndex(row => samePath(row.path, path))
-			if (index >= 0) selectedIndex = index
+			const index = state.rows.findIndex(row => samePath(row.path, path))
+			if (index >= 0) state.selectedIndex = index
 			updateActiveInput()
 			updateFocus()
 		}
 		const commitActiveInput = () => {
 			const row = selectedRow()
-			if (!row || !activeInput || row.kind !== "field" || !rowIncluded(row)) return true
-			const value = activeInput.getValue()
+			if (!row || !state.activeInput || row.kind !== "field" || !rowIncluded(row)) return true
+			const value = state.activeInput.getValue()
 			const coerced = coerceArgValue(value, row.schema)
 			if (coerced === undefined) {
 				ctx.ui.notify(`${pathLabel(row.path)} must match ${formatSchemaType(row.schema)}.`, "error")
@@ -278,17 +290,17 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 			return true
 		}
 		const handleActiveInput = (data: string) => {
-			activeInput?.handleInput(data)
+			state.activeInput?.handleInput(data)
 		}
 		const toggleInclude = () => {
 			const row = selectedRow()
 			if (!row || !rowCanInclude(row)) return
 			if (rowIncluded(row)) {
 				deleteAt(args, row.path)
-				focusPart = "include"
+				state.focusPart = "include"
 			} else {
 				setAt(args, row.path, defaultArgValue(row.schema, true))
-				focusPart = "value"
+				state.focusPart = "value"
 			}
 			refreshRows()
 		}
@@ -310,10 +322,10 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 			const arrayRow =
 				row.kind === "array"
 					? row
-					: row.arrayPath
-						? rows.find(candidate => candidate.kind === "array" && samePath(candidate.path, row.arrayPath ?? []))
+					: row.arrayContext
+						? state.rows.find(candidate => candidate.kind === "array" && samePath(candidate.path, row.arrayContext?.path ?? []))
 						: undefined
-			return arrayRow ? addArrayItemForRow(arrayRow, row.kind === "array" ? -1 : row.arrayIndex) : false
+			return arrayRow ? addArrayItemForRow(arrayRow, row.kind === "array" ? -1 : row.arrayContext?.index) : false
 		}
 		const removeArrayItemAt = (arrayPath: ArgPath, index: number) => {
 			const array = getArrayAt(args, arrayPath)
@@ -330,8 +342,9 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 				const array = getArrayAt(args, row.path)
 				return array ? removeArrayItemAt(row.path, array.length - 1) : false
 			}
-			return row.arrayPath && row.arrayIndex !== undefined ? removeArrayItemAt(row.arrayPath, row.arrayIndex) : false
+			return row.arrayContext ? removeArrayItemAt(row.arrayContext.path, row.arrayContext.index) : false
 		}
+		const rowLabel = (row: ArgRow) => `${"  ".repeat(row.depth)}${row.label}`
 		const rowValue = (row: ArgRow, index: number, valueWidth: number) => {
 			if (!rowIncluded(row)) return OMIT_LABEL
 			if (row.kind === "object") {
@@ -344,8 +357,8 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 				return `${count} item${count === 1 ? "" : "s"}`
 			}
 			if (row.kind === "item") return formatSchemaType(row.schema)
-			if (activeInput && index === selectedIndex)
-				return focusPart === "value" ? renderInput(activeInput, valueWidth) : activeInput.getValue()
+			if (state.activeInput && index === state.selectedIndex)
+				return state.focusPart === "value" ? renderInput(state.activeInput, valueWidth) : state.activeInput.getValue()
 			return formatArgValue(hasAt(args, row.path) ? getAt(args, row.path) : OMIT)
 		}
 		updateActiveInput()
@@ -373,59 +386,66 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 				)
 
 				const maxVisible = 16
-				const startIndex = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), Math.max(0, rows.length - maxVisible)))
-				const endIndex = Math.min(startIndex + maxVisible, rows.length)
-				const maxLabelWidth = Math.min(34, Math.max(...rows.map(row => visibleWidth(row.label))))
+				const startIndex = Math.max(
+					0,
+					Math.min(state.selectedIndex - Math.floor(maxVisible / 2), Math.max(0, state.rows.length - maxVisible))
+				)
+				const endIndex = Math.min(startIndex + maxVisible, state.rows.length)
+				const maxLabelWidth = Math.min(34, Math.max(...state.rows.map(row => visibleWidth(rowLabel(row)))))
 				for (let index = startIndex; index < startIndex + maxVisible; index++) {
-					const row = index < endIndex ? rows[index] : undefined
+					const row = index < endIndex ? state.rows[index] : undefined
 					if (!row) {
 						lines.push("")
 						continue
 					}
-					const isSelected = index === selectedIndex
+					const isSelected = index === state.selectedIndex
 					const prefix = isSelected ? listTheme.cursor : "  "
 					const isIncluded = rowIncluded(row)
 					const controlText = row.kind === "item" ? "    " : `${isIncluded ? "[x]" : "[ ]"} `
-					const controlSelected = isSelected && focusPart === "include" && rowCanInclude(row)
+					const controlSelected = isSelected && state.focusPart === "include" && rowCanInclude(row)
 					const control = row.kind === "item" || row.required ? theme.fg("dim", controlText) : listTheme.label(controlText, controlSelected)
-					const label = listTheme.label(row.label + " ".repeat(Math.max(0, maxLabelWidth - visibleWidth(row.label))), isSelected)
+					const labelText = rowLabel(row)
+					const label = listTheme.label(labelText + " ".repeat(Math.max(0, maxLabelWidth - visibleWidth(labelText))), isSelected)
 					const valueWidth = Math.max(1, width - visibleWidth(prefix) - visibleWidth(controlText) - maxLabelWidth - 6)
 					const rawValue = rowValue(row, index, valueWidth)
-					const valueSelected = isSelected && focusPart === "value"
+					const valueSelected = isSelected && state.focusPart === "value"
 					const value = listTheme.value(truncateToWidth(rawValue, valueWidth, ""), valueSelected)
 					lines.push(truncateToWidth(`${prefix}${control}${label}  ${value}`, width))
 				}
-				lines.push(startIndex > 0 || endIndex < rows.length ? listTheme.hint(`  (${selectedIndex + 1}/${rows.length})`) : "")
+				lines.push(
+					startIndex > 0 || endIndex < state.rows.length ? listTheme.hint(`  (${state.selectedIndex + 1}/${state.rows.length})`) : ""
+				)
 				return lines
 			},
-			invalidate: () => activeInput?.invalidate(),
+			invalidate: () => state.activeInput?.invalidate(),
 			handleInput: (data: string) => {
 				const kb = getKeybindings()
 				if (kb.matches(data, "tui.input.submit")) {
 					if (commitActiveInput()) done(args)
 				} else if (kb.matches(data, "tui.select.up")) {
 					if (!commitActiveInput()) return
-					selectedIndex = selectedIndex === 0 ? rows.length - 1 : selectedIndex - 1
+					state.selectedIndex = state.selectedIndex === 0 ? state.rows.length - 1 : state.selectedIndex - 1
 					updateActiveInput()
 					updateFocus()
 				} else if (kb.matches(data, "tui.select.down")) {
 					if (!commitActiveInput()) return
-					selectedIndex = selectedIndex === rows.length - 1 ? 0 : selectedIndex + 1
+					state.selectedIndex = state.selectedIndex === state.rows.length - 1 ? 0 : state.selectedIndex + 1
 					updateActiveInput()
 					updateFocus()
 				} else if (kb.matches(data, "tui.editor.cursorRight")) {
 					const row = selectedRow()
-					if (focusPart === "include" && row && rowIncluded(row)) focusPart = "value"
-					else if (focusPart === "value") handleActiveInput(data)
+					if (state.focusPart === "include" && row && rowIncluded(row)) state.focusPart = "value"
+					else if (state.focusPart === "value") handleActiveInput(data)
 				} else if (kb.matches(data, "tui.editor.cursorLeft")) {
 					const row = selectedRow()
-					if (focusPart === "value" && row && rowCanInclude(row) && (!activeInput || inputCursor(activeInput) === 0)) focusPart = "include"
-					else if (focusPart === "value") handleActiveInput(data)
+					if (state.focusPart === "value" && row && rowCanInclude(row) && (!state.activeInput || inputCursor(state.activeInput) === 0))
+						state.focusPart = "include"
+					else if (state.focusPart === "value") handleActiveInput(data)
 				} else if (data === " ") {
 					const row = selectedRow()
 					if (!row) return
 					const choices = rowChoices(row)
-					if (focusPart === "include") toggleInclude()
+					if (state.focusPart === "include") toggleInclude()
 					else if (choices) {
 						const current = formatArgValue(hasAt(args, row.path) ? getAt(args, row.path) : OMIT)
 						setRowValueFromLabel(row, choices[(choices.indexOf(current) + 1) % choices.length] ?? choices[0] ?? "null")
@@ -433,7 +453,7 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 				} else if (data === "+" || data === "=") addArrayItemForSelection()
 				else if (data === "-") removeSelectedArrayItem()
 				else if (kb.matches(data, "tui.select.cancel")) done(undefined)
-				else if (focusPart === "value") handleActiveInput(data)
+				else if (state.focusPart === "value") handleActiveInput(data)
 			}
 		}
 	})
