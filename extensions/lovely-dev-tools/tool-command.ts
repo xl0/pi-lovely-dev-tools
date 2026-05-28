@@ -24,12 +24,13 @@ import { editToolArgs } from "./arg-editor"
 import { isRunToolDetails, RUN_TOOL_MESSAGE_TYPE, type RunToolDetails } from "./messages"
 import { asSchema, coerceArgValue, formatToolArgs, type Schema } from "./schema"
 
-async function selectTool(ctx: ExtensionCommandContext, tools: ToolInfo[], activeTools: Set<string>) {
+async function selectTool(ctx: ExtensionCommandContext, tools: ToolInfo[], activeTools: Set<string>, initialQuery = "") {
 	return ctx.ui.custom<ToolInfo | undefined>((_tui, theme, _keybindings, done) => {
 		const listTheme = getSettingsListTheme()
 		const searchInput = new Input()
+		searchInput.setValue(initialQuery)
 		searchInput.focused = true
-		let filteredTools = tools
+		let filteredTools = initialQuery ? fuzzyFilter(tools, initialQuery, tool => tool.name) : tools
 		let selectedIndex = 0
 
 		const applyFilter = () => {
@@ -99,7 +100,10 @@ function imageParts(result: AgentToolResult<unknown>) {
 	})
 }
 
-async function convertResultImagesForTerminal(result: AgentToolResult<unknown>): Promise<AgentToolResult<unknown>> {
+async function convertResultImagesForTerminal(
+	result: AgentToolResult<unknown>,
+	onConversionFailure?: (mimeType: string) => void
+): Promise<AgentToolResult<unknown>> {
 	if (getCapabilities().images !== "kitty") return result
 	const content = await Promise.all(
 		result.content.map(async part => {
@@ -109,7 +113,10 @@ async function convertResultImagesForTerminal(result: AgentToolResult<unknown>):
 			const mimeType = image.mimeType ?? image.source?.media_type
 			if (!data || !mimeType || mimeType === "image/png") return part
 			const converted = await convertToPng(data, mimeType)
-			if (!converted) return part
+			if (!converted) {
+				onConversionFailure?.(mimeType)
+				return part
+			}
 			if (image.data) return { ...part, data: converted.data, mimeType: converted.mimeType }
 			return { ...part, source: { ...image.source, data: converted.data, media_type: converted.mimeType } }
 		})
@@ -231,6 +238,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 			const activeTools = new Set(pi.getActiveTools())
 			const parts = splitCommandArgs(args)
 			const initialTool = parts[0] ? tools.find(tool => tool.name === parts[0]) : undefined
+			let initialToolQuery = parts[0] && !initialTool ? parts[0] : undefined
 			let selectedTool = initialTool
 			let initialToolArgs = initialTool && parts.length > 1 ? flatToolArgs(initialTool, parts.slice(1)) : undefined
 			if (initialTool && parts.length > 1 && !initialToolArgs) {
@@ -238,7 +246,10 @@ export function registerToolCommand(pi: ExtensionAPI) {
 			}
 
 			while (true) {
-				selectedTool ??= await selectTool(ctx, tools, activeTools)
+				if (!selectedTool) {
+					selectedTool = await selectTool(ctx, tools, activeTools, initialToolQuery)
+					initialToolQuery = undefined
+				}
 				if (!selectedTool) return
 
 				const toolArgs = initialToolArgs ?? (await editToolArgs(ctx, selectedTool))
@@ -271,7 +282,9 @@ export function registerToolCommand(pi: ExtensionAPI) {
 				}
 
 				try {
-					result = await convertResultImagesForTerminal(result)
+					result = await convertResultImagesForTerminal(result, mimeType => {
+						ctx.ui.notify(`Could not convert ${mimeType} image to PNG for terminal display.`, "warning")
+					})
 				} catch (error) {
 					isError = true
 					result = {
