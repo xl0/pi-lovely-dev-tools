@@ -4,7 +4,8 @@ import {
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	getSettingsListTheme,
-	type Theme
+	type Theme,
+	type ToolInfo
 } from "@earendil-works/pi-coding-agent"
 import type { AutocompleteItem, TUI } from "@earendil-works/pi-tui"
 import {
@@ -28,7 +29,6 @@ const HIDDEN_MESSAGE_TYPES = new Set([RUN_TOOL_MESSAGE_TYPE, SYSTEM_PROMPT_MESSA
 const OMIT = Symbol("omit")
 const OMIT_LABEL = "<omit>"
 
-type ToolInfo = ReturnType<ExtensionAPI["getAllTools"]>[number]
 type Schema = Record<string, unknown> & {
 	enum?: unknown
 	anyOf?: unknown
@@ -906,12 +906,6 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 				selectedTool ??= await selectTool(ctx, tools, activeTools)
 				if (!selectedTool) return
 
-				const definition = ctx.getToolDefinition(selectedTool.name)
-				if (!definition) {
-					ctx.ui.notify(`Cannot execute ${selectedTool.name}: tool definition not available.`, "error")
-					return
-				}
-
 				const toolArgs = initialToolArgs ?? (await editToolArgs(ctx, selectedTool))
 				initialToolArgs = undefined
 				if (!toolArgs) {
@@ -955,7 +949,7 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 				let result: AgentToolResult<unknown>
 				let isError = false
 				try {
-					result = await definition.execute(toolCallId, toolArgs, undefined, undefined, ctx)
+					result = await selectedTool.execute(toolCallId, toolArgs, undefined, undefined, ctx)
 				} catch (error) {
 					isError = true
 					result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], details: undefined }
