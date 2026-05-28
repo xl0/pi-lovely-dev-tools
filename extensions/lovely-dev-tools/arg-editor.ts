@@ -2,21 +2,21 @@ import { type ExtensionCommandContext, getSettingsListTheme, type ToolInfo } fro
 import { getKeybindings, Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui"
 import {
 	asSchema,
-	coerceValue,
-	defaultObjectValue,
-	defaultValue,
-	inputValue,
+	coerceArgValue,
+	defaultArgValue,
+	defaultObjectArgs,
+	formatArgValue,
+	formatInputValue,
+	formatSchemaType,
+	getSchemaDescription,
+	hasObjectSchemaProperties,
 	isRecord,
 	OMIT,
 	OMIT_LABEL,
-	objectSchemaHasProperties,
 	parseJsonValue,
 	type Schema,
-	schemaDescription,
 	schemaEnum,
 	schemaStringArray,
-	schemaType,
-	valueLabel,
 	wrapText
 } from "./schema"
 
@@ -153,7 +153,7 @@ function buildObjectRows(
 		if (propertySchema?.type === "array") {
 			rows.push(makeRow({ ...base, kind: "array" }, arrayContext))
 			if (hasAt(args, propertyPath)) rows.push(...buildArrayRows(propertySchema, args, propertyPath, depth + 1))
-		} else if (propertySchema?.type === "object" || objectSchemaHasProperties(propertySchema)) {
+		} else if (propertySchema?.type === "object" || hasObjectSchemaProperties(propertySchema)) {
 			rows.push(makeRow({ ...base, kind: "object" }, arrayContext))
 			if (hasAt(args, propertyPath)) rows.push(...buildObjectRows(propertySchema, args, propertyPath, depth + 1, arrayContext))
 		} else rows.push(makeRow({ ...base, kind: "field" }, arrayContext))
@@ -172,7 +172,7 @@ function buildArrayRows(schema: Schema | undefined, args: Record<string, unknown
 		if (items?.type === "array") {
 			rows.push(makeRow({ kind: "array", path: itemPath, label, schema: items, required: true }, arrayContext))
 			rows.push(...buildArrayRows(items, args, itemPath, depth + 1))
-		} else if (items?.type === "object" || objectSchemaHasProperties(items)) {
+		} else if (items?.type === "object" || hasObjectSchemaProperties(items)) {
 			rows.push(makeRow({ kind: "item", path: itemPath, label, schema: items, required: true }, arrayContext))
 			rows.push(...buildObjectRows(items, args, itemPath, depth + 1, arrayContext))
 		} else rows.push(makeRow({ kind: "field", path: itemPath, label, schema: items, required: true }, arrayContext))
@@ -181,8 +181,8 @@ function buildArrayRows(schema: Schema | undefined, args: Record<string, unknown
 }
 
 function schemaSummaryLines(schema: Schema | undefined, required: boolean, indent = "  "): string[] {
-	const lines = [`${indent}${required ? "required" : "optional"} ${schemaType(schema)}`]
-	const description = schemaDescription(schema)
+	const lines = [`${indent}${required ? "required" : "optional"} ${formatSchemaType(schema)}`]
+	const description = getSchemaDescription(schema)
 	if (description) lines.push(...wrapText(`${indent}${description}`, 120))
 	const items = asSchema(schema?.items)
 	if (items) {
@@ -205,7 +205,7 @@ function schemaSummaryLines(schema: Schema | undefined, required: boolean, inden
 
 export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo): Promise<Record<string, unknown> | undefined> {
 	const parameters = asSchema(tool.parameters)
-	const args = defaultObjectValue(parameters)
+	const args = defaultObjectArgs(parameters)
 	const initialRows = buildObjectRows(parameters, args)
 	if (initialRows.length === 0) return {}
 
@@ -222,7 +222,7 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 		const rowChoices = (row: ArgRow | undefined) => {
 			if (!row || row.kind !== "field") return undefined
 			const enumValues = row.schema ? schemaEnum(row.schema) : undefined
-			const enumChoices = enumValues?.map(valueLabel)
+			const enumChoices = enumValues?.map(formatArgValue)
 			return enumChoices?.length ? enumChoices : row.schema?.type === "boolean" ? ["true", "false"] : undefined
 		}
 		const setRowValueFromLabel = (row: ArgRow, label: string) => {
@@ -248,7 +248,7 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 				return
 			}
 			const input = new Input()
-			input.setValue(inputValue(hasAt(args, row.path) ? getAt(args, row.path) : OMIT))
+			input.setValue(formatInputValue(hasAt(args, row.path) ? getAt(args, row.path) : OMIT))
 			setInputCursor(input, row.schema?.type === "string" ? Math.max(1, input.getValue().length - 1) : input.getValue().length)
 			input.focused = true
 			activeInput = input
@@ -269,9 +269,9 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 			const row = selectedRow()
 			if (!row || !activeInput || row.kind !== "field" || !rowIncluded(row)) return true
 			const value = activeInput.getValue()
-			const coerced = coerceValue(value, row.schema)
+			const coerced = coerceArgValue(value, row.schema)
 			if (coerced === undefined) {
-				ctx.ui.notify(`${pathLabel(row.path)} must match ${schemaType(row.schema)}.`, "error")
+				ctx.ui.notify(`${pathLabel(row.path)} must match ${formatSchemaType(row.schema)}.`, "error")
 				return false
 			}
 			setAt(args, row.path, coerced)
@@ -287,7 +287,7 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 				deleteAt(args, row.path)
 				focusPart = "include"
 			} else {
-				setAt(args, row.path, defaultValue(row.schema, true))
+				setAt(args, row.path, defaultArgValue(row.schema, true))
 				focusPart = "value"
 			}
 			refreshRows()
@@ -299,7 +299,7 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 			if (!array) return false
 			const itemSchema = asSchema(row.schema?.items)
 			const index = afterIndex === undefined ? array.length : Math.min(array.length, afterIndex + 1)
-			array.splice(index, 0, defaultValue(itemSchema, false))
+			array.splice(index, 0, defaultArgValue(itemSchema, false))
 			refreshRows()
 			selectPath([...row.path, index])
 			return true
@@ -343,10 +343,10 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 				const count = getArrayAt(args, row.path)?.length ?? 0
 				return `${count} item${count === 1 ? "" : "s"}`
 			}
-			if (row.kind === "item") return schemaType(row.schema)
+			if (row.kind === "item") return formatSchemaType(row.schema)
 			if (activeInput && index === selectedIndex)
 				return focusPart === "value" ? renderInput(activeInput, valueWidth) : activeInput.getValue()
-			return valueLabel(hasAt(args, row.path) ? getAt(args, row.path) : OMIT)
+			return formatArgValue(hasAt(args, row.path) ? getAt(args, row.path) : OMIT)
 		}
 		updateActiveInput()
 		updateFocus()
@@ -427,7 +427,7 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 					const choices = rowChoices(row)
 					if (focusPart === "include") toggleInclude()
 					else if (choices) {
-						const current = valueLabel(hasAt(args, row.path) ? getAt(args, row.path) : OMIT)
+						const current = formatArgValue(hasAt(args, row.path) ? getAt(args, row.path) : OMIT)
 						setRowValueFromLabel(row, choices[(choices.indexOf(current) + 1) % choices.length] ?? choices[0] ?? "null")
 					} else handleActiveInput(data)
 				} else if (data === "+" || data === "=") addArrayItemForSelection()
