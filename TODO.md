@@ -1,6 +1,23 @@
 # TODO
 
-## Current follow-ups
+## Current cleanup plan
+
+- [ ] Refactor argument editor state into explicit `EditorState`.
+- [ ] Store row depth separately from row label.
+- [ ] Replace `arrayPath` / `arrayIndex` with one `arrayContext` object.
+- [x] Move hidden-message filters into `messages.ts`.
+- [ ] Rename schema/arg helpers for clearer intent.
+- [ ] Show a notification when terminal image conversion returns `null`.
+- [ ] Pre-seed the tool selector when `/tool <unknown>` is entered.
+
+## Later decisions
+
+- [ ] Decide how to handle unstructured object schemas in the editor.
+- [ ] Decide required-field/default validation before execution.
+- [ ] Consider central image block normalization.
+- [ ] Consider splitting `tool-command.ts` only if it grows again.
+
+## Existing follow-ups
 
 - [ ] Add explicit validation before executing: required fields with invalid/empty defaults should block with an error.
 - [ ] Refine array item UX/keybindings after trying it in real tool schemas.
