@@ -7,6 +7,7 @@ import {
 	createAgentSessionServices,
 	type ExtensionCommandContext,
 	type ExtensionUIContext,
+	parseArgs,
 	SessionManager,
 	type ToolDefinition
 } from "@earendil-works/pi-coding-agent"
@@ -29,23 +30,6 @@ const mutedUi = new Proxy(
 	}
 ) as ExtensionUIContext
 
-function parseStartupExtensionArgs(argv: string[]) {
-	const extensions: string[] = []
-	const unknownFlags = new Map<string, boolean | string>()
-	let noExtensions = false
-	for (let index = 0; index < argv.length; index++) {
-		const arg = argv[index]
-		if ((arg === "--extension" || arg === "-e") && argv[index + 1]) extensions.push(argv[++index] ?? "")
-		else if (arg === "--no-extensions" || arg === "-ne") noExtensions = true
-		else if (arg?.startsWith("--")) {
-			const eqIndex = arg.indexOf("=")
-			if (eqIndex >= 0) unknownFlags.set(arg.slice(2, eqIndex), arg.slice(eqIndex + 1))
-			else unknownFlags.set(arg.slice(2), true)
-		}
-	}
-	return { extensions, noExtensions, unknownFlags }
-}
-
 function resolveExtensionPaths(paths: string[]): string[] {
 	return paths.map(path => (path.startsWith(".") || path.startsWith("/") ? resolve(process.cwd(), path) : path))
 }
@@ -65,9 +49,10 @@ function diagnosticsText(diagnostics: AgentSessionRuntimeDiagnostic[]) {
 }
 
 export async function createToolBackend(ctx: ExtensionCommandContext, activeTools: string[]): Promise<ToolBackend> {
-	const parsed = parseStartupExtensionArgs(process.argv.slice(2))
+	const parsed = parseArgs(process.argv.slice(2))
+	const extensionPaths = parsed.extensions ?? []
 	const resourceLoaderOptions = {
-		...(parsed.extensions.length > 0 ? { additionalExtensionPaths: resolveExtensionPaths(parsed.extensions) } : {}),
+		...(extensionPaths.length > 0 ? { additionalExtensionPaths: resolveExtensionPaths(extensionPaths) } : {}),
 		...(parsed.noExtensions ? { noExtensions: true } : {})
 	}
 	const services = await createAgentSessionServices({
