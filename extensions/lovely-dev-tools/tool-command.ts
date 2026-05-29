@@ -311,15 +311,24 @@ export function registerToolCommand(pi: ExtensionAPI) {
 				let isError = false
 				let backend: Awaited<ReturnType<typeof createToolBackend>> | undefined
 				let unsubscribeAbort: (() => void) | undefined
+				let processAbortHandler: ((data: Buffer) => void) | undefined
 				try {
 					backend = await createToolBackend(ctx, [...activeTools])
-					unsubscribeAbort = ctx.ui.onTerminalInput(data => {
-						if (data !== "\x1b" && data !== "\x03") return undefined
+					const abortRun = () => {
 						abortRequested = true
 						backend?.abort()
 						renderPendingToolRun("Aborting Manual Tool Run...")
+					}
+					unsubscribeAbort = ctx.ui.onTerminalInput(data => {
+						if (!data.includes("\x1b") && !data.includes("\x03")) return undefined
+						abortRun()
 						return { consume: true }
 					})
+					processAbortHandler = data => {
+						if (!data.includes(0x1b) && !data.includes(0x03)) return
+						abortRun()
+					}
+					process.stdin.on("data", processAbortHandler)
 					result = await backend.run(toolName, toolArgs, toolCallId)
 					if (abortRequested || backend.isAborted()) {
 						isError = true
@@ -335,6 +344,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 					}
 				} finally {
 					unsubscribeAbort?.()
+					if (processAbortHandler) process.stdin.off("data", processAbortHandler)
 					backend?.dispose()
 				}
 
