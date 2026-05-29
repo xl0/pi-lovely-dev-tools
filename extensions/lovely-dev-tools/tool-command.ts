@@ -171,8 +171,7 @@ function resultText(result: AgentToolResult<unknown>, imageFallbacks: ImageFallb
 			const image = imageBlock(part)
 			if (image) {
 				if (canRenderImage(image.mimeType)) return []
-				const fallbackIndex = remainingFallbacks.findIndex(fallback => fallback.mimeType === image.mimeType)
-				const [fallback] = fallbackIndex >= 0 ? remainingFallbacks.splice(fallbackIndex, 1) : []
+				const fallback = remainingFallbacks.shift()
 				return [`[image: ${image.mimeType}${fallback ? ` saved to ${fallback.path}` : ""}]`]
 			}
 			if (part.type === "image") return ["[image: unknown]"]
@@ -340,6 +339,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 						void (async () => {
 							try {
 								backend = await createToolBackend(ctx, [...activeTools])
+								if (abortRequested) backend.abort()
 								let result = await backend.run(toolName, toolArgs, toolCallId, update => {
 									partialResult = update
 									tui.requestRender()
