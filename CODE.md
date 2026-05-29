@@ -10,7 +10,7 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 - `extensions/lovely-dev-tools/index.ts`: small extension entrypoint. Registers command modules and hidden-message filters.
 - `extensions/lovely-dev-tools/messages.ts`: custom message type constants, hidden message set, `/tool` message details guard.
 - `extensions/lovely-dev-tools/schema.ts`: shared JSON-schema helpers for defaults, enum/type display, value coercion, argument formatting, and text wrapping.
-- `extensions/lovely-dev-tools/arg-editor.ts`: schema-driven interactive `/tool` argument editor.
+- `extensions/lovely-dev-tools/arg-editor.ts`: schema-driven interactive `/tool` argument editor. Depends only on extension UI plus tool name/description/schema metadata, not the full command context.
 - `extensions/lovely-dev-tools/tool-command.ts`: `/tool` selector, flat arg parsing, pending widget, result/image rendering.
 - `extensions/lovely-dev-tools/tool-backend.ts`: single-use Nested Execution Session backend for Manual Tool Runs.
 - `extensions/lovely-dev-tools/show-sysprompt.ts`: `/show-sysprompt` command and collapsible renderers.
@@ -25,7 +25,7 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 
 `/tool [tool_name] [flat args...]` waits for idle, selects a tool with a searchable inline selector when needed, edits args in an inline TUI when flat args are not supplied, executes the tool, then appends one displayed custom message. Tool selector search and `/tool <tab>` autocomplete match tool names only. Unknown tool names pre-seed the selector search. Inactive tools are visible and runnable manually; active/inactive only marks LLM availability.
 
-Flat args are assigned to top-level schema properties in schema order. Example: `/tool read file.txt 10 20`.
+Flat args are assigned to top-level schema properties in schema order by a schema-only parser. Example: `/tool read file.txt 10 20`.
 
 Custom message type: `lovely-dev-tools.run-tool` with `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, `timestamp`, and optional `imageFallbacks`.
 

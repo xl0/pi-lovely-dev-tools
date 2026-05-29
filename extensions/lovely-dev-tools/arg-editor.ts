@@ -1,4 +1,4 @@
-import { type ExtensionCommandContext, getSettingsListTheme, type ToolInfo } from "@earendil-works/pi-coding-agent"
+import { type ExtensionUIContext, getSettingsListTheme } from "@earendil-works/pi-coding-agent"
 import { CURSOR_MARKER, getKeybindings, Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui"
 import {
 	asSchema,
@@ -42,6 +42,12 @@ type EditorState = {
 	selectedIndex: number
 	focusPart: "include" | "value"
 	activeInput: Input | undefined
+}
+
+type EditableTool = {
+	name: string
+	description: string
+	parameters: unknown
 }
 
 function pathLabel(path: ArgPath) {
@@ -212,13 +218,13 @@ function schemaSummaryLines(schema: Schema | undefined, required: boolean, inden
 	return lines
 }
 
-export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo): Promise<Record<string, unknown> | undefined> {
+export async function editToolArgs(ui: ExtensionUIContext, tool: EditableTool): Promise<Record<string, unknown> | undefined> {
 	const parameters = asSchema(tool.parameters)
 	const args = defaultObjectArgs(parameters)
 	const initialRows = buildObjectRows(parameters, args)
 	if (initialRows.length === 0) return {}
 
-	return ctx.ui.custom<Record<string, unknown> | undefined>((_tui, theme, _keybindings, done) => {
+	return ui.custom<Record<string, unknown> | undefined>((_tui, theme, _keybindings, done) => {
 		const listTheme = getSettingsListTheme()
 		const state: EditorState = {
 			args,
@@ -295,7 +301,7 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 			const value = state.activeInput.getValue()
 			const coerced = row.schema?.type === "string" ? value : coerceArgValue(value, row.schema)
 			if (coerced === undefined) {
-				ctx.ui.notify(`${pathLabel(row.path)} must match ${formatSchemaType(row.schema)}.`, "error")
+				ui.notify(`${pathLabel(row.path)} must match ${formatSchemaType(row.schema)}.`, "error")
 				return false
 			}
 			setAt(args, row.path, coerced)
