@@ -16,7 +16,6 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 - `extensions/lovely-dev-tools/show-sysprompt.ts`: `/show-sysprompt` command and collapsible renderers.
 - `assets/demo.mp4`: source demo video kept in repo, not shipped in npm package.
 - `assets/demo.gif`: npm/GitHub-compatible README demo preview kept in repo, not shipped in npm package.
-- `archive/TOOL_UI_REUSE.md`: archived feasibility notes for replacing `/tool` with a standalone Pi-TUI tool runner against clean Pi APIs.
 - `tsconfig.json`, `biome.json`: strict TypeScript and Biome config.
 
 ## `lovely-dev-tools`
@@ -53,7 +52,7 @@ Escape returns to tool selection/cancel. Enter runs.
 
 ## Tool execution and rendering
 
-Tool execution creates a single-use nested SDK session with `createAgentSessionServices()` / `createAgentSessionFromServices()`, `SessionManager.inMemory(ctx.cwd)`, muted startup UI, active tool names mirrored from the outer session, and a bridged execution UI. The backend resolves the executable definition with `session.getToolDefinition()`, applies `prepareArguments`, validates with `validateToolArguments()`, then calls `definition.execute(...)` directly with a nested extension context and an abort signal. Ctrl-C during the pending run aborts that signal when the terminal delivers it as raw input. Aborted runs are displayed as error Manual Tool Runs. It intentionally bypasses Agent Tool Policy hooks. Thrown errors become text `AgentToolResult`s with `isError: true`.
+Tool execution creates a single-use nested SDK session with `createAgentSessionServices()` / `createAgentSessionFromServices()`, `SessionManager.inMemory(ctx.cwd)`, muted startup UI, active tool names mirrored from the outer session, and a bridged execution UI. The backend resolves the executable definition with `session.getToolDefinition()`, applies `prepareArguments`, validates with `validateToolArguments()`, then calls `definition.execute(...)` directly with a nested extension context and an abort signal. The pending run is a focused `ctx.ui.custom()` component; Esc aborts that signal. Aborted runs are displayed as error Manual Tool Runs. It intentionally bypasses Agent Tool Policy hooks. Thrown errors become text `AgentToolResult`s with `isError: true`.
 
 Startup extension mirroring uses Pi's exported `parseArgs(process.argv.slice(2))` for `-e` / `--extension`, `--no-extensions`, and extension flag values.
 
