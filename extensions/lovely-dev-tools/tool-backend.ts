@@ -76,7 +76,7 @@ export async function createToolBackend(ctx: ExtensionCommandContext, activeTool
 	created.session.setActiveToolsByName(activeTools)
 	created.session.extensionRunner.setUIContext(ctx.ui)
 	const diagnostics = [...services.diagnostics]
-	let abort: AbortController | undefined
+	const abort = new AbortController()
 	return {
 		diagnostics,
 		async run(toolName, toolArgs, toolCallId, onUpdate) {
@@ -87,14 +87,13 @@ export async function createToolBackend(ctx: ExtensionCommandContext, activeTool
 				)
 			}
 			const args = prepareArgs(definition, toolArgs)
-			abort = new AbortController()
 			return definition.execute(toolCallId, args, abort.signal, onUpdate, created.session.extensionRunner.createContext())
 		},
 		abort() {
-			abort?.abort()
+			abort.abort()
 		},
 		isAborted() {
-			return abort?.signal.aborted === true
+			return abort.signal.aborted
 		},
 		dispose() {
 			created.session.dispose()
