@@ -293,10 +293,12 @@ export function registerToolCommand(pi: ExtensionAPI) {
 
 				const toolName = selectedTool.name
 				let abortRequested = false
-				const renderPendingToolRun = (message: string) => {
+				const renderPendingToolRun = (message: string, partialResult?: AgentToolResult<unknown>) => {
 					ctx.ui.setWidget("tool-loading", (_tui: TUI, theme) => {
 						const callLine = theme.fg("toolTitle", theme.bold(`${toolName}(${formatToolArgs(toolArgs)})`))
-						const text = new Text(`${callLine}\n${theme.fg("toolOutput", message)}`, 0, 0)
+						const output = partialResult ? resultText(partialResult) : ""
+						const body = output ? `${message}\n\n${output}` : message
+						const text = new Text(`${callLine}\n${theme.fg("toolOutput", body)}`, 0, 0)
 						const box = new Box(1, 1, value => theme.bg("toolPendingBg", value))
 						box.addChild(text)
 						return box
@@ -329,7 +331,9 @@ export function registerToolCommand(pi: ExtensionAPI) {
 						abortRun()
 					}
 					process.stdin.on("data", processAbortHandler)
-					result = await backend.run(toolName, toolArgs, toolCallId)
+					result = await backend.run(toolName, toolArgs, toolCallId, partialResult => {
+						renderPendingToolRun("Tool is running... Ctrl-C abort", partialResult)
+					})
 					if (abortRequested || backend.isAborted()) {
 						isError = true
 						result = { content: [{ type: "text", text: "Manual Tool Run aborted." }], details: undefined }

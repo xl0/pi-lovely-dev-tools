@@ -3,6 +3,7 @@ import { validateToolArguments } from "@earendil-works/pi-ai"
 import {
 	type AgentSessionRuntimeDiagnostic,
 	type AgentToolResult,
+	type AgentToolUpdateCallback,
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 	type ExtensionCommandContext,
@@ -14,7 +15,12 @@ import {
 
 export type ToolBackend = {
 	diagnostics: AgentSessionRuntimeDiagnostic[]
-	run(toolName: string, toolArgs: Record<string, unknown>, toolCallId: string): Promise<AgentToolResult<unknown>>
+	run(
+		toolName: string,
+		toolArgs: Record<string, unknown>,
+		toolCallId: string,
+		onUpdate?: AgentToolUpdateCallback<unknown>
+	): Promise<AgentToolResult<unknown>>
 	abort(): void
 	isAborted(): boolean
 	dispose(): void
@@ -73,7 +79,7 @@ export async function createToolBackend(ctx: ExtensionCommandContext, activeTool
 	let abort: AbortController | undefined
 	return {
 		diagnostics,
-		async run(toolName, toolArgs, toolCallId) {
+		async run(toolName, toolArgs, toolCallId, onUpdate) {
 			const definition = created.session.getToolDefinition(toolName)
 			if (!definition) {
 				throw new Error(
@@ -82,7 +88,7 @@ export async function createToolBackend(ctx: ExtensionCommandContext, activeTool
 			}
 			const args = prepareArgs(definition, toolArgs)
 			abort = new AbortController()
-			return definition.execute(toolCallId, args, abort.signal, undefined, created.session.extensionRunner.createContext())
+			return definition.execute(toolCallId, args, abort.signal, onUpdate, created.session.extensionRunner.createContext())
 		},
 		abort() {
 			abort?.abort()

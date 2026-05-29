@@ -57,7 +57,7 @@ Tool execution creates a single-use nested SDK session with `createAgentSessionS
 
 Startup extension mirroring uses Pi's exported `parseArgs(process.argv.slice(2))` for `-e` / `--extension`, `--no-extensions`, and extension flag values.
 
-While running, a `tool-loading` widget shows the pending call and Ctrl-C abort hint. On completion, a `lovely-dev-tools.run-tool` renderer shows the completed call and raw result output:
+While running, a `tool-loading` widget shows the pending call, Ctrl-C abort hint, and latest partial tool update when provided. On completion, a `lovely-dev-tools.run-tool` renderer shows the completed call and raw result output:
 
 - errors use `toolErrorBg`
 - success uses `toolSuccessBg`
