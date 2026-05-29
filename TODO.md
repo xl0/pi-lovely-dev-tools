@@ -25,12 +25,12 @@ Implemented:
 
 - [x] Decouple `arg-editor.ts` from `ExtensionCommandContext`; pass only extension UI.
 - [x] Keep flat arg parsing independent of Pi extension types.
-- [ ] Consider central image block normalization if more image shapes appear.
+- [x] Centralize image block normalization for top-level and `source`-shaped image blocks.
 
 ### Rendering
 
 - [ ] Revisit native `ToolExecutionComponent` rendering only if Pi exposes a clean public API or raw-ish rendering becomes insufficient.
-- [ ] Render non-image, non-text tool result blocks better than `[type]` placeholders.
+- [x] Render non-image, non-text tool result blocks as `[type]` plus JSON details.
 
 ### Docs / release
 
