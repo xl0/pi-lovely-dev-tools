@@ -95,14 +95,21 @@ async function selectTool(ctx: ExtensionCommandContext, tools: ToolInfo[], activ
 	})
 }
 
+type ToolImageBlock = {
+	data: string
+	mimeType: string
+}
+
+function imageBlock(part: AgentToolResult<unknown>["content"][number]): ToolImageBlock | undefined {
+	if (part.type !== "image") return undefined
+	const image = part as { data?: string; mimeType?: string; source?: { data?: string; media_type?: string } }
+	const data = image.data ?? image.source?.data
+	const mimeType = image.mimeType ?? image.source?.media_type
+	return data && mimeType ? { data, mimeType } : undefined
+}
+
 function imageParts(result: AgentToolResult<unknown>) {
-	return result.content.flatMap(part => {
-		if (part.type !== "image") return []
-		const image = part as { data?: string; mimeType?: string; source?: { data?: string; media_type?: string } }
-		const data = image.data ?? image.source?.data
-		const mimeType = image.mimeType ?? image.source?.media_type
-		return data && mimeType ? [{ data, mimeType }] : []
-	})
+	return result.content.flatMap(part => imageBlock(part) ?? [])
 }
 
 function canRenderImage(mimeType: string) {
@@ -150,20 +157,26 @@ async function convertResultImagesForTerminal(
 	return { ...result, content }
 }
 
+function blockText(part: AgentToolResult<unknown>["content"][number]) {
+	const { type, ...rest } = part as unknown as { type: string; [key: string]: unknown }
+	if (Object.keys(rest).length === 0) return `[${type}]`
+	return `[${type}]\n${JSON.stringify(rest, null, 2)}`
+}
+
 function resultText(result: AgentToolResult<unknown>, imageFallbacks: ImageFallback[] = []) {
 	const remainingFallbacks = [...imageFallbacks]
 	return result.content
 		.flatMap(part => {
 			if (part.type === "text") return [part.text]
-			if (part.type === "image") {
-				const image = part as { mimeType?: string; source?: { media_type?: string } }
-				const mimeType = image.mimeType ?? image.source?.media_type ?? "unknown"
-				if (canRenderImage(mimeType)) return []
-				const fallbackIndex = remainingFallbacks.findIndex(fallback => fallback.mimeType === mimeType)
+			const image = imageBlock(part)
+			if (image) {
+				if (canRenderImage(image.mimeType)) return []
+				const fallbackIndex = remainingFallbacks.findIndex(fallback => fallback.mimeType === image.mimeType)
 				const [fallback] = fallbackIndex >= 0 ? remainingFallbacks.splice(fallbackIndex, 1) : []
-				return [`[image: ${mimeType}${fallback ? ` saved to ${fallback.path}` : ""}]`]
+				return [`[image: ${image.mimeType}${fallback ? ` saved to ${fallback.path}` : ""}]`]
 			}
-			return [`[${(part as { type: string }).type}]`]
+			if (part.type === "image") return ["[image: unknown]"]
+			return [blockText(part)]
 		})
 		.join("\n")
 }

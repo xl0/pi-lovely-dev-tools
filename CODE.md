@@ -62,7 +62,7 @@ While running, a `tool-loading` widget shows the pending call, Ctrl-C abort hint
 - errors use `toolErrorBg`
 - success uses `toolSuccessBg`
 
-`resultText()` renders text blocks directly and non-text blocks as placeholders. Image result blocks render inline when supported; otherwise the original image bytes are saved under `/tmp/pi-tool-image-<uuid>.<ext>` and the text fallback points to that path. Non-PNG image blocks (top-level or `source`-shaped) are converted with Pi's `convertToPng()` before storing results for Kitty-compatible terminals. Conversion/save failures are warnings and display degradation, not Manual Tool Run failures.
+`resultText()` renders text blocks directly and non-text/non-image blocks as `[type]` plus JSON details. Image result blocks are normalized from either top-level or `source`-shaped data, then render inline when supported; otherwise the original image bytes are saved under `/tmp/pi-tool-image-<uuid>.<ext>` and the text fallback points to that path. Non-PNG image blocks are converted with Pi's `convertToPng()` before storing results for Kitty-compatible terminals. Conversion/save failures are warnings and display degradation, not Manual Tool Run failures.
 
 ### `/show-sysprompt`
 
