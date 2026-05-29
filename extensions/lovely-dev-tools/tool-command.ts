@@ -302,7 +302,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 						return box
 					})
 				}
-				renderPendingToolRun("Tool is running... Ctrl-C abort")
+				renderPendingToolRun("Tool is running... Esc abort")
 
 				const now = Date.now()
 				const toolCallId = `run_tool_${now}`
@@ -314,7 +314,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 				try {
 					backend = await createToolBackend(ctx, [...activeTools])
 					unsubscribeAbort = ctx.ui.onTerminalInput(data => {
-						if (data !== "\x03") return undefined
+						if (data !== "\x1b" && data !== "\x03") return undefined
 						abortRequested = true
 						backend?.abort()
 						renderPendingToolRun("Aborting Manual Tool Run...")
