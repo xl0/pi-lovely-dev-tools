@@ -13,26 +13,16 @@ Implemented:
 - [x] muted nested startup UI and bridged execution UI
 - [x] direct `prepareArguments` + `validateToolArguments()` + `definition.execute(...)`
 - [x] active-tool-name mirroring for nested context introspection
-- [x] Ctrl-C abort path for pending Manual Tool Runs
-- [x] partial `onUpdate` rendering in pending widget; final session stores final result only
+- [x] focused pending Manual Tool Run UI with Esc abort
+- [x] partial `onUpdate` rendering in focused pending UI; final session stores final result only
 - [x] image display cleanup: inline when supported, `/tmp/pi-tool-image-<uuid>.<ext>` fallback otherwise
+- [x] non-image, non-text result blocks render as `[type]` plus JSON details
 - [x] missing nested tool errors include nested diagnostics
 - [x] docs/ADR/context synced for nested backend
+- [x] README cleaned for release
+- [x] `bun run check` passes
+- [x] package dry-run checked
 
 ## Remaining work
 
-### Code cleanup
-
-- [x] Decouple `arg-editor.ts` from `ExtensionCommandContext`; pass only extension UI.
-- [x] Keep flat arg parsing independent of Pi extension types.
-- [x] Centralize image block normalization for top-level and `source`-shaped image blocks.
-
-### Rendering
-
-- [ ] Revisit native `ToolExecutionComponent` rendering only if Pi exposes a clean public API or raw-ish rendering becomes insufficient.
-- [x] Render non-image, non-text tool result blocks as `[type]` plus JSON details.
-
-### Docs / release
-
-- [ ] Final README pass before publish.
-- [ ] Run `bun run check` before release.
+No planned code work. Before publishing, rerun `bun run check` and package dry-run if anything changes.

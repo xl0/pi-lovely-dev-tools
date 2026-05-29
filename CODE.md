@@ -11,7 +11,7 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 - `extensions/lovely-dev-tools/messages.ts`: custom message type constants, hidden message set, `/tool` message details guard.
 - `extensions/lovely-dev-tools/schema.ts`: shared JSON-schema helpers for defaults, enum/type display, value coercion, argument formatting, and text wrapping.
 - `extensions/lovely-dev-tools/arg-editor.ts`: schema-driven interactive `/tool` argument editor. Depends only on extension UI plus tool name/description/schema metadata, not the full command context.
-- `extensions/lovely-dev-tools/tool-command.ts`: `/tool` selector, flat arg parsing, pending widget, result/image rendering.
+- `extensions/lovely-dev-tools/tool-command.ts`: `/tool` selector, flat arg parsing, focused pending run component, result/image rendering.
 - `extensions/lovely-dev-tools/tool-backend.ts`: single-use Nested Execution Session backend for Manual Tool Runs.
 - `extensions/lovely-dev-tools/show-sysprompt.ts`: `/show-sysprompt` command and collapsible renderers.
 - `assets/demo.mp4`: source demo video kept in repo, not shipped in npm package.
@@ -56,7 +56,7 @@ Tool execution creates a single-use nested SDK session with `createAgentSessionS
 
 Startup extension mirroring uses Pi's exported `parseArgs(process.argv.slice(2))` for `-e` / `--extension`, `--no-extensions`, and extension flag values.
 
-While running, a `tool-loading` widget shows the pending call, Ctrl-C abort hint, and latest partial tool update when provided. On completion, a `lovely-dev-tools.run-tool` renderer shows the completed call and raw result output:
+While running, a focused custom component shows the pending call, Esc abort hint, and latest partial tool update when provided. On completion, a `lovely-dev-tools.run-tool` renderer shows the completed call and raw result output:
 
 - errors use `toolErrorBg`
 - success uses `toolSuccessBg`
