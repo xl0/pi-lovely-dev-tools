@@ -53,11 +53,11 @@ Escape returns to tool selection/cancel. Enter runs.
 
 ## Tool execution and rendering
 
-Tool execution creates a single-use nested SDK session with `createAgentSessionServices()` / `createAgentSessionFromServices()`, `SessionManager.inMemory(ctx.cwd)`, muted startup UI, active tool names mirrored from the outer session, and a bridged execution UI. The backend resolves the executable definition with `session.getToolDefinition()`, applies `prepareArguments`, validates with `validateToolArguments()`, then calls `definition.execute(...)` directly with a nested extension context and an abort signal. Esc during the pending run aborts that signal; Ctrl-C is also accepted when the terminal delivers it as raw input. Aborted runs are displayed as error Manual Tool Runs. It intentionally bypasses Agent Tool Policy hooks. Thrown errors become text `AgentToolResult`s with `isError: true`.
+Tool execution creates a single-use nested SDK session with `createAgentSessionServices()` / `createAgentSessionFromServices()`, `SessionManager.inMemory(ctx.cwd)`, muted startup UI, active tool names mirrored from the outer session, and a bridged execution UI. The backend resolves the executable definition with `session.getToolDefinition()`, applies `prepareArguments`, validates with `validateToolArguments()`, then calls `definition.execute(...)` directly with a nested extension context and an abort signal. Ctrl-C during the pending run aborts that signal when the terminal delivers it as raw input. Aborted runs are displayed as error Manual Tool Runs. It intentionally bypasses Agent Tool Policy hooks. Thrown errors become text `AgentToolResult`s with `isError: true`.
 
 Startup extension mirroring uses Pi's exported `parseArgs(process.argv.slice(2))` for `-e` / `--extension`, `--no-extensions`, and extension flag values.
 
-While running, a `tool-loading` widget shows the pending call and Esc abort hint. On completion, a `lovely-dev-tools.run-tool` renderer shows the completed call and raw result output:
+While running, a `tool-loading` widget shows the pending call and Ctrl-C abort hint. On completion, a `lovely-dev-tools.run-tool` renderer shows the completed call and raw result output:
 
 - errors use `toolErrorBg`
 - success uses `toolSuccessBg`
