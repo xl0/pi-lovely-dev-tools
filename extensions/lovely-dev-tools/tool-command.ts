@@ -292,13 +292,17 @@ export function registerToolCommand(pi: ExtensionAPI) {
 				}
 
 				const toolName = selectedTool.name
-				ctx.ui.setWidget("tool-loading", (_tui: TUI, theme) => {
-					const callLine = theme.fg("toolTitle", theme.bold(`${toolName}(${formatToolArgs(toolArgs)})`))
-					const text = new Text(`${callLine}\n${theme.fg("toolOutput", "Tool is running...")}`, 0, 0)
-					const box = new Box(1, 1, value => theme.bg("toolPendingBg", value))
-					box.addChild(text)
-					return box
-				})
+				let abortRequested = false
+				const renderPendingToolRun = (message: string) => {
+					ctx.ui.setWidget("tool-loading", (_tui: TUI, theme) => {
+						const callLine = theme.fg("toolTitle", theme.bold(`${toolName}(${formatToolArgs(toolArgs)})`))
+						const text = new Text(`${callLine}\n${theme.fg("toolOutput", message)}`, 0, 0)
+						const box = new Box(1, 1, value => theme.bg("toolPendingBg", value))
+						box.addChild(text)
+						return box
+					})
+				}
+				renderPendingToolRun("Tool is running... Ctrl-C abort")
 
 				const now = Date.now()
 				const toolCallId = `run_tool_${now}`
@@ -306,13 +310,31 @@ export function registerToolCommand(pi: ExtensionAPI) {
 				let result: AgentToolResult<unknown>
 				let isError = false
 				let backend: Awaited<ReturnType<typeof createToolBackend>> | undefined
+				let unsubscribeAbort: (() => void) | undefined
 				try {
 					backend = await createToolBackend(ctx, [...activeTools])
+					unsubscribeAbort = ctx.ui.onTerminalInput(data => {
+						if (data !== "\x03") return undefined
+						abortRequested = true
+						backend?.abort()
+						renderPendingToolRun("Aborting Manual Tool Run...")
+						return { consume: true }
+					})
 					result = await backend.run(toolName, toolArgs, toolCallId)
+					if (abortRequested || backend.isAborted()) {
+						isError = true
+						result = { content: [{ type: "text", text: "Manual Tool Run aborted." }], details: undefined }
+					}
 				} catch (error) {
 					isError = true
-					result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], details: undefined }
+					result = {
+						content: [
+							{ type: "text", text: abortRequested ? "Manual Tool Run aborted." : error instanceof Error ? error.message : String(error) }
+						],
+						details: undefined
+					}
 				} finally {
+					unsubscribeAbort?.()
 					backend?.dispose()
 				}
 
