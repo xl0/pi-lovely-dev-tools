@@ -23,8 +23,8 @@ Implemented:
 
 ### Code cleanup
 
-- [ ] Decouple `arg-editor.ts` from `ExtensionCommandContext`; use a small UI host interface.
-- [ ] Keep flat arg parsing independent of Pi extension types.
+- [x] Decouple `arg-editor.ts` from `ExtensionCommandContext`; pass only extension UI.
+- [x] Keep flat arg parsing independent of Pi extension types.
 - [ ] Consider central image block normalization if more image shapes appear.
 
 ### Rendering

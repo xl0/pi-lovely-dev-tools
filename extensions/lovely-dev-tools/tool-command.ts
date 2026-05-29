@@ -199,8 +199,8 @@ function coerceFlatArg(text: string, schema: Schema | undefined): unknown | unde
 	return coerceArgValue(text, schema)
 }
 
-function flatToolArgs(tool: ToolInfo, values: string[]): Record<string, unknown> | undefined {
-	const parameters = asSchema(tool.parameters)
+function flatToolArgs(parametersSchema: unknown, values: string[]): Record<string, unknown> | undefined {
+	const parameters = asSchema(parametersSchema)
 	const properties = asSchema(parameters?.properties)
 	if (!properties) return values.length === 0 ? {} : undefined
 	const args: Record<string, unknown> = {}
@@ -271,7 +271,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 			const initialTool = parts[0] ? tools.find(tool => tool.name === parts[0]) : undefined
 			let initialToolQuery = parts[0] && !initialTool ? parts[0] : undefined
 			let selectedTool = initialTool
-			let initialToolArgs = initialTool && parts.length > 1 ? flatToolArgs(initialTool, parts.slice(1)) : undefined
+			let initialToolArgs = initialTool && parts.length > 1 ? flatToolArgs(initialTool.parameters, parts.slice(1)) : undefined
 			if (initialTool && parts.length > 1 && !initialToolArgs) {
 				ctx.ui.notify(`Could not parse flat args for ${initialTool.name}. Opening editor.`, "warning")
 			}
@@ -283,7 +283,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 				}
 				if (!selectedTool) return
 
-				const toolArgs = initialToolArgs ?? (await editToolArgs(ctx, selectedTool))
+				const toolArgs = initialToolArgs ?? (await editToolArgs(ctx.ui, selectedTool))
 				initialToolArgs = undefined
 				if (!toolArgs) {
 					if (initialTool) return
