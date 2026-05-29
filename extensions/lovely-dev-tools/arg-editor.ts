@@ -1,5 +1,5 @@
 import { type ExtensionCommandContext, getSettingsListTheme, type ToolInfo } from "@earendil-works/pi-coding-agent"
-import { getKeybindings, Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui"
+import { CURSOR_MARKER, getKeybindings, Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui"
 import {
 	asSchema,
 	coerceArgValue,
@@ -192,7 +192,7 @@ function buildArrayRows(schema: Schema | undefined, args: Record<string, unknown
 function schemaSummaryLines(schema: Schema | undefined, required: boolean, indent = "  "): string[] {
 	const lines = [`${indent}${required ? "required" : "optional"} ${formatSchemaType(schema)}`]
 	const description = getSchemaDescription(schema)
-	if (description) lines.push(...wrapText(`${indent}${description}`, 120))
+	if (description) lines.push(`${indent}${description}`)
 	const items = asSchema(schema?.items)
 	if (items) {
 		lines.push(`${indent}items:`)
@@ -249,6 +249,18 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 			;(input as unknown as { cursor: number }).cursor = cursor
 		}
 		const renderInput = (input: Input, width: number) => input.render(width + 2)[0]?.slice(2) ?? ""
+		const renderStringInput = (input: Input, width: number) => {
+			const text = `"${input.getValue()}"`
+			const cursor = Math.min(inputCursor(input) + 1, text.length - 1)
+			const beforeCursor = text.slice(0, cursor)
+			const atCursor = text[cursor] ?? '"'
+			const afterCursor = text.slice(cursor + atCursor.length)
+			return truncateToWidth(`${beforeCursor}${CURSOR_MARKER}\x1b[7m${atCursor}\x1b[27m${afterCursor}`, width, "")
+		}
+		const formatEditorInputValue = (row: ArgRow) => {
+			const value = hasAt(args, row.path) ? getAt(args, row.path) : OMIT
+			return row.schema?.type === "string" && typeof value === "string" ? value : formatInputValue(value)
+		}
 		const updateFocus = () => {
 			const row = selectedRow()
 			state.focusPart = row && rowCanInclude(row) && !rowIncluded(row) ? "include" : "value"
@@ -260,8 +272,8 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 				return
 			}
 			const input = new Input()
-			input.setValue(formatInputValue(hasAt(args, row.path) ? getAt(args, row.path) : OMIT))
-			setInputCursor(input, row.schema?.type === "string" ? Math.max(1, input.getValue().length - 1) : input.getValue().length)
+			input.setValue(formatEditorInputValue(row))
+			setInputCursor(input, input.getValue().length)
 			input.focused = true
 			state.activeInput = input
 		}
@@ -281,7 +293,7 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 			const row = selectedRow()
 			if (!row || !state.activeInput || row.kind !== "field" || !rowIncluded(row)) return true
 			const value = state.activeInput.getValue()
-			const coerced = coerceArgValue(value, row.schema)
+			const coerced = row.schema?.type === "string" ? value : coerceArgValue(value, row.schema)
 			if (coerced === undefined) {
 				ctx.ui.notify(`${pathLabel(row.path)} must match ${formatSchemaType(row.schema)}.`, "error")
 				return false
@@ -345,6 +357,13 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 			return row.arrayContext ? removeArrayItemAt(row.arrayContext.path, row.arrayContext.index) : false
 		}
 		const rowLabel = (row: ArgRow) => `${"  ".repeat(row.depth)}${row.label}`
+		const selectionHelpText = () => {
+			const row = selectedRow()
+			const parts = ["Enter run", "Esc back", "←/→ include/value", "Space toggle/cycle bools/enums"]
+			if (row && (state.focusPart !== "value" || !state.activeInput) && (row.kind === "array" || row.arrayContext))
+				parts.push("+ insert item", "- remove item")
+			return parts.join(" · ")
+		}
 		const rowValue = (row: ArgRow, index: number, valueWidth: number) => {
 			if (!rowIncluded(row)) return OMIT_LABEL
 			if (row.kind === "object") {
@@ -356,9 +375,12 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 				const count = getArrayAt(args, row.path)?.length ?? 0
 				return `${count} item${count === 1 ? "" : "s"}`
 			}
-			if (row.kind === "item") return formatSchemaType(row.schema)
-			if (state.activeInput && index === state.selectedIndex)
+			if (row.kind === "item") return ""
+			if (state.activeInput && index === state.selectedIndex) {
+				if (row.schema?.type === "string")
+					return state.focusPart === "value" ? renderStringInput(state.activeInput, valueWidth) : `"${state.activeInput.getValue()}"`
 				return state.focusPart === "value" ? renderInput(state.activeInput, valueWidth) : state.activeInput.getValue()
+			}
 			return formatArgValue(hasAt(args, row.path) ? getAt(args, row.path) : OMIT)
 		}
 		updateActiveInput()
@@ -368,11 +390,13 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 			render: (width: number) => {
 				const selected = selectedRow()
 				const lines: string[] = [theme.fg("accent", theme.bold(`Arguments for ${tool.name}`))]
+				const selectedSummary = selected && selected.kind !== "item" ? schemaSummaryLines(selected.schema, selected.required) : []
+				const [selectedSummaryLine, ...selectedSummaryRest] = selectedSummary
 				const helpLines: string[] = selected
 					? [
 							...wrapText(tool.description, width - 2),
-							`${pathLabel(selected.path)} · ${selected.kind}`,
-							...schemaSummaryLines(selected.schema, selected.required).flatMap(line => wrapText(line, width))
+							`${pathLabel(selected.path)} · ${selected.kind}${selectedSummaryLine ? ` · ${selectedSummaryLine.trim()}` : ""}`,
+							...selectedSummaryRest.flatMap(line => wrapText(line, width))
 						]
 					: wrapText(tool.description, width - 2)
 				for (let index = 0; index < 5; index++) {
@@ -380,10 +404,7 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 					if (line) lines.push(listTheme.description(`  ${line}`))
 					else lines.push("")
 				}
-				lines.push(
-					theme.fg("dim", "Enter run · Esc back · ←/→ include/value · Space toggle/cycle bools/enums · + insert item · - remove item"),
-					""
-				)
+				lines.push(theme.fg("dim", selectionHelpText()), "")
 
 				const maxVisible = 16
 				const startIndex = Math.max(
@@ -450,7 +471,9 @@ export async function editToolArgs(ctx: ExtensionCommandContext, tool: ToolInfo)
 						const current = formatArgValue(hasAt(args, row.path) ? getAt(args, row.path) : OMIT)
 						setRowValueFromLabel(row, choices[(choices.indexOf(current) + 1) % choices.length] ?? choices[0] ?? "null")
 					} else handleActiveInput(data)
-				} else if (data === "+" || data === "=") addArrayItemForSelection()
+				} else if ((data === "+" || data === "=" || data === "-") && state.focusPart === "value" && state.activeInput)
+					handleActiveInput(data)
+				else if (data === "+" || data === "=") addArrayItemForSelection()
 				else if (data === "-") removeSelectedArrayItem()
 				else if (kb.matches(data, "tui.select.cancel")) done(undefined)
 				else if (state.focusPart === "value") handleActiveInput(data)
