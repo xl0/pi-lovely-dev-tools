@@ -4,22 +4,26 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 
 ## Structure
 
-- `package.json`: npm/pi package manifest. Pi loads `./extensions` and links `assets/demo.mp4` through `pi.video` using a raw GitHub URL. `assets/` is intentionally excluded from published npm files.
+- `package.json`: npm/pi package manifest. Pi loads `./extensions` and links `assets/demo.mp4` through `pi.video` using a raw GitHub URL. `assets/` is intentionally excluded from published npm files. Peer/dev deps include `@earendil-works/pi-ai` for direct `validateToolArguments()` imports.
+- `CONTEXT.md`: domain language for Manual Tool Runs, the Manual Tool Runner, and Agent Tool Calls.
+- `docs/adr/0001-manual-tool-runner-stays-extension.md`: decision to keep `/tool` as an extension and use a nested SDK session for execution.
 - `extensions/lovely-dev-tools/index.ts`: small extension entrypoint. Registers command modules and hidden-message filters.
 - `extensions/lovely-dev-tools/messages.ts`: custom message type constants, hidden message set, `/tool` message details guard.
 - `extensions/lovely-dev-tools/schema.ts`: shared JSON-schema helpers for defaults, enum/type display, value coercion, argument formatting, and text wrapping.
 - `extensions/lovely-dev-tools/arg-editor.ts`: schema-driven interactive `/tool` argument editor.
-- `extensions/lovely-dev-tools/tool-command.ts`: `/tool` selector, flat arg parsing, execution, result/image rendering.
+- `extensions/lovely-dev-tools/tool-command.ts`: `/tool` selector, flat arg parsing, pending widget, result/image rendering.
+- `extensions/lovely-dev-tools/tool-backend.ts`: single-use Nested Execution Session backend for Manual Tool Runs.
 - `extensions/lovely-dev-tools/show-sysprompt.ts`: `/show-sysprompt` command and collapsible renderers.
 - `assets/demo.mp4`: source demo video kept in repo, not shipped in npm package.
 - `assets/demo.gif`: npm/GitHub-compatible README demo preview kept in repo, not shipped in npm package.
+- `TOOL_UI_REUSE.md`: feasibility notes for replacing `/tool` with a standalone Pi-TUI tool runner against clean Pi APIs.
 - `tsconfig.json`, `biome.json`: strict TypeScript and Biome config.
 
 ## `lovely-dev-tools`
 
 ### `/tool`
 
-`/tool [tool_name] [flat args...]` waits for idle, selects a tool with a searchable inline selector when needed, edits args in an inline TUI when flat args are not supplied, executes the tool, then appends one displayed custom message. Tool selector search and `/tool <tab>` autocomplete match tool names only. Unknown tool names pre-seed the selector search.
+`/tool [tool_name] [flat args...]` waits for idle, selects a tool with a searchable inline selector when needed, edits args in an inline TUI when flat args are not supplied, executes the tool, then appends one displayed custom message. Tool selector search and `/tool <tab>` autocomplete match tool names only. Unknown tool names pre-seed the selector search. Inactive tools are visible and runnable manually; active/inactive only marks LLM availability.
 
 Flat args are assigned to top-level schema properties in schema order. Example: `/tool read file.txt 10 20`.
 
@@ -49,7 +53,9 @@ Escape returns to tool selection/cancel. Enter runs.
 
 ## Tool execution and rendering
 
-Tool execution uses the selected `ToolInfo` from `pi.getAllTools()` and calls `tool.execute(toolCallId, toolArgs, undefined, undefined, ctx)`. Thrown errors become text `AgentToolResult`s with `isError: true`.
+Tool execution creates a single-use nested SDK session with `createAgentSessionServices()` / `createAgentSessionFromServices()`, `SessionManager.inMemory(ctx.cwd)`, muted startup UI, active tool names mirrored from the outer session, and a bridged execution UI. The backend resolves the executable definition with `session.getToolDefinition()`, applies `prepareArguments`, validates with `validateToolArguments()`, then calls `definition.execute(...)` directly with a nested extension context and an abort signal. It intentionally bypasses Agent Tool Policy hooks. Thrown errors become text `AgentToolResult`s with `isError: true`.
+
+Startup extension mirroring uses Pi's exported `parseArgs(process.argv.slice(2))` for `-e` / `--extension`, `--no-extensions`, and extension flag values.
 
 While running, a `tool-loading` widget shows the pending call. On completion, a `lovely-dev-tools.run-tool` renderer shows the completed call and raw result output:
 
