@@ -23,6 +23,7 @@ import {
 import { editToolArgs } from "./arg-editor"
 import { isRunToolDetails, RUN_TOOL_MESSAGE_TYPE, type RunToolDetails } from "./messages"
 import { asSchema, coerceArgValue, formatToolArgs, type Schema } from "./schema"
+import { createToolBackend } from "./tool-backend"
 
 async function selectTool(ctx: ExtensionCommandContext, tools: ToolInfo[], activeTools: Set<string>, initialQuery = "") {
 	return ctx.ui.custom<ToolInfo | undefined>((_tui, theme, _keybindings, done) => {
@@ -274,11 +275,15 @@ export function registerToolCommand(pi: ExtensionAPI) {
 
 				let result: AgentToolResult<unknown>
 				let isError = false
+				let backend: Awaited<ReturnType<typeof createToolBackend>> | undefined
 				try {
-					result = await selectedTool.execute(toolCallId, toolArgs, undefined, undefined, ctx)
+					backend = await createToolBackend(ctx, [...activeTools])
+					result = await backend.run(toolName, toolArgs, toolCallId)
 				} catch (error) {
 					isError = true
 					result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], details: undefined }
+				} finally {
+					backend?.dispose()
 				}
 
 				try {
