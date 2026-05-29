@@ -10,7 +10,7 @@ import {
 	getSettingsListTheme,
 	type ToolInfo
 } from "@earendil-works/pi-coding-agent"
-import type { AutocompleteItem, TUI } from "@earendil-works/pi-tui"
+import type { AutocompleteItem } from "@earendil-works/pi-tui"
 import {
 	Box,
 	Container,
@@ -305,65 +305,74 @@ export function registerToolCommand(pi: ExtensionAPI) {
 				}
 
 				const toolName = selectedTool.name
-				let abortRequested = false
-				const renderPendingToolRun = (message: string, partialResult?: AgentToolResult<unknown>) => {
-					ctx.ui.setWidget("tool-loading", (_tui: TUI, theme) => {
-						const callLine = theme.fg("toolTitle", theme.bold(`${toolName}(${formatToolArgs(toolArgs)})`))
-						const output = partialResult ? resultText(partialResult) : ""
-						const body = output ? `${message}\n\n${output}` : message
-						const text = new Text(`${callLine}\n${theme.fg("toolOutput", body)}`, 0, 0)
-						const box = new Box(1, 1, value => theme.bg("toolPendingBg", value))
-						box.addChild(text)
-						return box
-					})
-				}
-				renderPendingToolRun("Tool is running... Ctrl-C abort")
-
 				const now = Date.now()
 				const toolCallId = `run_tool_${now}`
-
-				let result: AgentToolResult<unknown>
-				let isError = false
-				let backend: Awaited<ReturnType<typeof createToolBackend>> | undefined
-				let unsubscribeAbort: (() => void) | undefined
-				let processAbortHandler: ((data: Buffer) => void) | undefined
-				try {
-					backend = await createToolBackend(ctx, [...activeTools])
-					const abortRun = () => {
-						abortRequested = true
-						backend?.abort()
-						renderPendingToolRun("Aborting Manual Tool Run...")
+				let { result, isError } = await ctx.ui.custom<{ result: AgentToolResult<unknown>; isError: boolean }>(
+					(tui, theme, keybindings, done) => {
+						let backend: Awaited<ReturnType<typeof createToolBackend>> | undefined
+						let abortRequested = false
+						let doneCalled = false
+						let message = "Tool is running... Esc abort"
+						let partialResult: AgentToolResult<unknown> | undefined
+						const finish = (value: { result: AgentToolResult<unknown>; isError: boolean }) => {
+							if (doneCalled) return
+							doneCalled = true
+							done(value)
+						}
+						const abortRun = () => {
+							if (abortRequested || doneCalled) return
+							abortRequested = true
+							message = "Aborting Manual Tool Run..."
+							backend?.abort()
+							tui.requestRender()
+						}
+						void (async () => {
+							try {
+								backend = await createToolBackend(ctx, [...activeTools])
+								let result = await backend.run(toolName, toolArgs, toolCallId, update => {
+									partialResult = update
+									tui.requestRender()
+								})
+								let isError = false
+								if (abortRequested || backend.isAborted()) {
+									isError = true
+									result = { content: [{ type: "text", text: "Manual Tool Run aborted." }], details: undefined }
+								}
+								finish({ result, isError })
+							} catch (error) {
+								finish({
+									isError: true,
+									result: {
+										content: [
+											{
+												type: "text",
+												text: abortRequested ? "Manual Tool Run aborted." : error instanceof Error ? error.message : String(error)
+											}
+										],
+										details: undefined
+									}
+								})
+							} finally {
+								backend?.dispose()
+							}
+						})()
+						return {
+							render: (width: number) => {
+								const callLine = theme.fg("toolTitle", theme.bold(`${toolName}(${formatToolArgs(toolArgs)})`))
+								const output = partialResult ? resultText(partialResult) : ""
+								const body = output ? `${message}\n\n${output}` : message
+								const text = new Text(`${callLine}\n${theme.fg("toolOutput", body)}`, 0, 0)
+								const box = new Box(1, 1, value => theme.bg("toolPendingBg", value))
+								box.addChild(text)
+								return box.render(width)
+							},
+							invalidate: () => {},
+							handleInput: (data: string) => {
+								if (keybindings.matches(data, "app.interrupt")) abortRun()
+							}
+						}
 					}
-					unsubscribeAbort = ctx.ui.onTerminalInput(data => {
-						if (!data.includes("\x03")) return undefined
-						abortRun()
-						return { consume: true }
-					})
-					processAbortHandler = data => {
-						if (!data.includes(0x03)) return
-						abortRun()
-					}
-					process.stdin.on("data", processAbortHandler)
-					result = await backend.run(toolName, toolArgs, toolCallId, partialResult => {
-						renderPendingToolRun("Tool is running... Ctrl-C abort", partialResult)
-					})
-					if (abortRequested || backend.isAborted()) {
-						isError = true
-						result = { content: [{ type: "text", text: "Manual Tool Run aborted." }], details: undefined }
-					}
-				} catch (error) {
-					isError = true
-					result = {
-						content: [
-							{ type: "text", text: abortRequested ? "Manual Tool Run aborted." : error instanceof Error ? error.message : String(error) }
-						],
-						details: undefined
-					}
-				} finally {
-					unsubscribeAbort?.()
-					if (processAbortHandler) process.stdin.off("data", processAbortHandler)
-					backend?.dispose()
-				}
+				)
 
 				try {
 					result = await convertResultImagesForTerminal(result, mimeType => {
@@ -378,8 +387,6 @@ export function registerToolCommand(pi: ExtensionAPI) {
 				} catch (error) {
 					ctx.ui.notify(`Could not save image fallback: ${error instanceof Error ? error.message : String(error)}`, "warning")
 				}
-				ctx.ui.setWidget("tool-loading", undefined)
-
 				pi.sendMessage({
 					customType: RUN_TOOL_MESSAGE_TYPE,
 					content: resultText(result, imageFallbacks),
