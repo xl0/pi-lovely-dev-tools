@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto"
+import { writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
 	type AgentToolResult,
 	convertToPng,
@@ -21,7 +25,7 @@ import {
 	visibleWidth
 } from "@earendil-works/pi-tui"
 import { editToolArgs } from "./arg-editor"
-import { isRunToolDetails, RUN_TOOL_MESSAGE_TYPE, type RunToolDetails } from "./messages"
+import { type ImageFallback, isRunToolDetails, RUN_TOOL_MESSAGE_TYPE, type RunToolDetails } from "./messages"
 import { asSchema, coerceArgValue, formatToolArgs, type Schema } from "./schema"
 import { createToolBackend } from "./tool-backend"
 
@@ -101,6 +105,27 @@ function imageParts(result: AgentToolResult<unknown>) {
 	})
 }
 
+function canRenderImage(mimeType: string) {
+	const imageCapability = getCapabilities().images
+	return !!imageCapability && (imageCapability !== "kitty" || mimeType === "image/png")
+}
+
+function imageExtension(mimeType: string) {
+	const subtype = mimeType.split("/")[1]?.split(";")[0]?.toLowerCase()
+	return subtype && /^[a-z0-9.+-]+$/.test(subtype) ? subtype.replace("jpeg", "jpg") : "bin"
+}
+
+async function saveImageFallbacks(result: AgentToolResult<unknown>): Promise<ImageFallback[]> {
+	const fallbacks: ImageFallback[] = []
+	for (const image of imageParts(result)) {
+		if (canRenderImage(image.mimeType)) continue
+		const path = join(tmpdir(), `pi-tool-image-${randomUUID()}.${imageExtension(image.mimeType)}`)
+		await writeFile(path, Buffer.from(image.data, "base64"))
+		fallbacks.push({ mimeType: image.mimeType, path })
+	}
+	return fallbacks
+}
+
 async function convertResultImagesForTerminal(
 	result: AgentToolResult<unknown>,
 	onConversionFailure?: (mimeType: string) => void
@@ -125,15 +150,20 @@ async function convertResultImagesForTerminal(
 	return { ...result, content }
 }
 
-function resultText(result: AgentToolResult<unknown>) {
+function resultText(result: AgentToolResult<unknown>, imageFallbacks: ImageFallback[] = []) {
+	const remainingFallbacks = [...imageFallbacks]
 	return result.content
-		.map(part => {
-			if (part.type === "text") return part.text
+		.flatMap(part => {
+			if (part.type === "text") return [part.text]
 			if (part.type === "image") {
 				const image = part as { mimeType?: string; source?: { media_type?: string } }
-				return `[image: ${image.mimeType ?? image.source?.media_type ?? "unknown"}]`
+				const mimeType = image.mimeType ?? image.source?.media_type ?? "unknown"
+				if (canRenderImage(mimeType)) return []
+				const fallbackIndex = remainingFallbacks.findIndex(fallback => fallback.mimeType === mimeType)
+				const [fallback] = fallbackIndex >= 0 ? remainingFallbacks.splice(fallbackIndex, 1) : []
+				return [`[image: ${mimeType}${fallback ? ` saved to ${fallback.path}` : ""}]`]
 			}
-			return `[${(part as { type: string }).type}]`
+			return [`[${(part as { type: string }).type}]`]
 		})
 		.join("\n")
 }
@@ -196,12 +226,12 @@ export function registerToolCommand(pi: ExtensionAPI) {
 			return box
 		}
 		const callLine = `Tool: ${theme.fg("toolTitle", theme.bold(`${details.toolName}(${formatToolArgs(details.toolArgs)})`))}`
-		const output = resultText(details.result)
+		const output = resultText(details.result, details.imageFallbacks)
 		const body = output ? `${callLine}\n\n${theme.fg("toolOutput", output)}` : callLine
 		const box = new Box(1, 1, value => theme.bg(details.isError ? "toolErrorBg" : "toolSuccessBg", value))
 		box.addChild(new Text(body, 0, 0))
-		const images = imageParts(details.result)
-		if (images.length === 0 || !getCapabilities().images) return box
+		const images = imageParts(details.result).filter(image => canRenderImage(image.mimeType))
+		if (images.length === 0) return box
 		const container = new Container()
 		container.addChild(box)
 		for (const image of images) {
@@ -291,22 +321,21 @@ export function registerToolCommand(pi: ExtensionAPI) {
 						ctx.ui.notify(`Could not convert ${mimeType} image to PNG for terminal display.`, "warning")
 					})
 				} catch (error) {
-					isError = true
-					result = {
-						...result,
-						content: [
-							...result.content,
-							{ type: "text", text: `Image conversion failed: ${error instanceof Error ? error.message : String(error)}` }
-						]
-					}
+					ctx.ui.notify(`Image conversion failed: ${error instanceof Error ? error.message : String(error)}`, "warning")
+				}
+				let imageFallbacks: ImageFallback[] = []
+				try {
+					imageFallbacks = await saveImageFallbacks(result)
+				} catch (error) {
+					ctx.ui.notify(`Could not save image fallback: ${error instanceof Error ? error.message : String(error)}`, "warning")
 				}
 				ctx.ui.setWidget("tool-loading", undefined)
 
 				pi.sendMessage({
 					customType: RUN_TOOL_MESSAGE_TYPE,
-					content: resultText(result),
+					content: resultText(result, imageFallbacks),
 					display: true,
-					details: { toolName, toolArgs, toolCallId, result, isError, timestamp: Date.now() } satisfies RunToolDetails
+					details: { toolName, toolArgs, toolCallId, result, isError, timestamp: Date.now(), imageFallbacks } satisfies RunToolDetails
 				})
 				return
 			}

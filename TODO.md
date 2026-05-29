@@ -80,8 +80,8 @@ Use Pi's exported `convertToPng()` as a required API. Do not vendor a copy and d
 
 - [x] Decide that the Manual Tool Runner remains an extension and delegates execution to a nested SDK session.
 - [x] Verify nested `createAgentSessionServices()` / `createAgentSessionFromServices()` typecheck from the extension against current local Pi package.
-- [ ] Verify nested sessions can load npm/git/local `-e` values from `process.argv`.
-- [ ] Verify extension tools that use `ctx.ui` work with a bridged nested UI context.
+- [x] Verify nested sessions can load npm/git/local `-e` values from `process.argv`.
+- [x] Verify extension tools that use `ctx.ui` work with a bridged nested UI context.
 - [x] Decide nested `session_start` / `resources_discover` must run before resolving executable tools.
 - [x] Decide dynamic runtime tool registrations are out of scope for the initial nested backend.
 - [x] Decide Manual Tool Runs bypass `tool_call` / `tool_result` hooks and call `definition.execute(...)` directly.
@@ -121,25 +121,25 @@ Use Pi's exported `convertToPng()` as a required API. Do not vendor a copy and d
 
 ### UI integration
 
-- [ ] Keep current searchable selector and active/inactive labels.
-- [ ] Keep current schema-driven arg editor.
+- [x] Keep current searchable selector and active/inactive labels.
+- [x] Keep current schema-driven arg editor.
 - [x] Show pending execution widget while nested tool runs.
-- [ ] Keep displayed custom message hidden from LLM context/session tree.
+- [x] Keep displayed custom message hidden from LLM context/session tree.
 - [x] Make missing nested tool error actionable and include relevant nested diagnostics.
 
 ### Rendering / images
 
-- [ ] Use static import of upstream `convertToPng()`; stale Pi versions that do not export it may fail to load.
+- [x] Use static import of upstream `convertToPng()`; stale Pi versions that do not export it may fail to load.
 - [x] Keep current raw text/image custom renderer initially.
 - [ ] Revisit native `ToolExecutionComponent` rendering only as a later feature.
-- [ ] Match Pi image semantics: render inline images when supported, otherwise show a text fallback indicator; do not show both.
-- [ ] When inline image rendering is unavailable or conversion fails, save original image bytes to `/tmp/pi-tool-image-<uuid>.<ext>` and include that path in fallback text/content/details.
-- [ ] Leave saved fallback image files for OS temp cleanup.
-- [ ] Treat image display/conversion failure as display degradation, not Manual Tool Run failure.
+- [x] Match Pi image semantics: render inline images when supported, otherwise show a text fallback indicator; do not show both.
+- [x] When inline image rendering is unavailable or conversion fails, save original image bytes to `/tmp/pi-tool-image-<uuid>.<ext>` and include that path in fallback text/content/details.
+- [x] Leave saved fallback image files for OS temp cleanup.
+- [x] Treat image display/conversion failure as display degradation, not Manual Tool Run failure.
 
 ### Docs / cleanup
 
 - [ ] Update README to explain clean-Pi-compatible `/tool` implementation.
 - [ ] Update `TOOL_UI_REUSE.md` after implementation decisions settle.
 - [ ] Remove obsolete notes about relying on patched `ToolInfo.execute`.
-- [ ] Typecheck and run formatter.
+- [x] Typecheck and run formatter.
