@@ -186,24 +186,35 @@ function splitCommandArgs(args: string) {
 	let current = ""
 	let quote: string | undefined
 	let escaped = false
+	let tokenStarted = false
 	for (const char of args) {
 		if (escaped) {
 			current += char
 			escaped = false
-		} else if (char === "\\") escaped = true
-		else if (quote) {
+			tokenStarted = true
+		} else if (char === "\\") {
+			escaped = true
+			tokenStarted = true
+		} else if (quote) {
 			if (char === quote) quote = undefined
 			else current += char
-		} else if (char === '"' || char === "'") quote = char
-		else if (/\s/.test(char)) {
-			if (current) {
+			tokenStarted = true
+		} else if (char === '"' || char === "'") {
+			quote = char
+			tokenStarted = true
+		} else if (/\s/.test(char)) {
+			if (tokenStarted) {
 				parts.push(current)
 				current = ""
+				tokenStarted = false
 			}
-		} else current += char
+		} else {
+			current += char
+			tokenStarted = true
+		}
 	}
 	if (escaped) current += "\\"
-	if (current) parts.push(current)
+	if (tokenStarted) parts.push(current)
 	return parts
 }
 

@@ -24,7 +24,7 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 
 `/tool [tool_name] [flat args...]` waits for idle, selects a tool with a searchable inline selector when needed, edits args in an inline TUI when flat args are not supplied, executes the tool, then appends one displayed custom message. Tool selector search and `/tool <tab>` autocomplete match tool names only. Unknown tool names pre-seed the selector search. Inactive tools are visible and runnable manually; active/inactive only marks LLM availability.
 
-Flat args are assigned to top-level schema properties in schema order by a schema-only parser. Example: `/tool read file.txt 10 20`.
+Flat args are assigned to top-level schema properties in schema order by a schema-only parser; shell-style quotes preserve spaces and empty strings. Example: `/tool read file.txt 10 20`.
 
 Custom message type: `lovely-dev-tools.run-tool` with `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, `timestamp`, and optional `imageFallbacks`.
 
@@ -52,7 +52,7 @@ Escape returns to tool selection/cancel. Enter runs.
 
 ## Tool execution and rendering
 
-Tool execution creates a single-use nested SDK session with `createAgentSessionServices()` / `createAgentSessionFromServices()`, `SessionManager.inMemory(ctx.cwd)`, muted startup UI, active tool names mirrored from the outer session, and a bridged execution UI. The backend resolves the executable definition with `session.getToolDefinition()`, applies `prepareArguments`, validates with `validateToolArguments()`, then calls `definition.execute(...)` directly with a nested extension context and an abort signal. The pending run is a focused `ctx.ui.custom()` component; Esc aborts that signal. Aborted runs are displayed as error Manual Tool Runs. It intentionally bypasses Agent Tool Policy hooks. Thrown errors become text `AgentToolResult`s with `isError: true`.
+Tool execution creates a single-use nested SDK session with `createAgentSessionServices()` / `createAgentSessionFromServices()`, `SessionManager.inMemory(ctx.cwd)`, muted startup UI, active tool names mirrored from the outer session, and a bridged execution UI. The backend resolves the executable definition with `session.getToolDefinition()`, applies `prepareArguments`, validates with `validateToolArguments()`, then calls `definition.execute(...)` directly with a nested extension context and a sticky abort signal. The pending run is a focused `ctx.ui.custom()` component; Esc aborts that signal, including before execution starts. Aborted runs are displayed as error Manual Tool Runs. It intentionally bypasses Agent Tool Policy hooks. Thrown errors become text `AgentToolResult`s with `isError: true`.
 
 Startup extension mirroring uses Pi's exported `parseArgs(process.argv.slice(2))` for `-e` / `--extension`, `--no-extensions`, and extension flag values.
 
