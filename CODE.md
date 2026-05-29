@@ -16,7 +16,7 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 - `extensions/lovely-dev-tools/show-sysprompt.ts`: `/show-sysprompt` command and collapsible renderers.
 - `assets/demo.mp4`: source demo video kept in repo, not shipped in npm package.
 - `assets/demo.gif`: npm/GitHub-compatible README demo preview kept in repo, not shipped in npm package.
-- `TOOL_UI_REUSE.md`: feasibility notes for replacing `/tool` with a standalone Pi-TUI tool runner against clean Pi APIs.
+- `archive/TOOL_UI_REUSE.md`: archived feasibility notes for replacing `/tool` with a standalone Pi-TUI tool runner against clean Pi APIs.
 - `tsconfig.json`, `biome.json`: strict TypeScript and Biome config.
 
 ## `lovely-dev-tools`
@@ -62,7 +62,7 @@ While running, a `tool-loading` widget shows the pending call. On completion, a 
 - errors use `toolErrorBg`
 - success uses `toolSuccessBg`
 
-`resultText()` renders text blocks directly and non-text blocks as placeholders. Image result blocks currently render both a text placeholder and, when the terminal supports images, an inline image. Non-PNG image blocks (top-level or `source`-shaped) are converted with Pi's `convertToPng()` before storing results for Kitty-compatible terminals. Thrown conversion failures turn the displayed `/tool` result into an explicit error message; `null` conversions show a warning notification and keep the original image block.
+`resultText()` renders text blocks directly and non-text blocks as placeholders. Image result blocks render inline when supported; otherwise the original image bytes are saved under `/tmp/pi-tool-image-<uuid>.<ext>` and the text fallback points to that path. Non-PNG image blocks (top-level or `source`-shaped) are converted with Pi's `convertToPng()` before storing results for Kitty-compatible terminals. Conversion/save failures are warnings and display degradation, not Manual Tool Run failures.
 
 ### `/show-sysprompt`
 
