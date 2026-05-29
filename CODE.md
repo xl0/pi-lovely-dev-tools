@@ -40,7 +40,7 @@ The `context` hook filters these custom messages out of LLM context while keepin
 - `+` / `-` array item shortcuts work from array rows and their child rows
 - booleans and enums/literal unions cycle with Space from the value cell
 - scalar leaves edit inline with a single-line `Input`; structured objects/arrays render as group rows
-- string drafts are JSON-quoted while editing
+- string drafts edit as raw text with decorative quotes around the input cell
 - tool description and selected-row schema/help are shown in a fixed-height top panel
 
 The editor mutates a nested args object directly from schema paths. Omitted fields/groups are absent from the final args. Scalar/JSON rows commit and validate when moving away or pressing Enter. Empty string and omitted are distinct.
