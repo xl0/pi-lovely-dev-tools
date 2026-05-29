@@ -114,10 +114,10 @@ Use Pi's exported `convertToPng()` as a required API. Do not vendor a copy and d
 - [x] Create an `AbortController` per Manual Tool Run and pass its signal to `definition.execute(...)`.
 - [x] Execute `definition.execute(...)` directly with nested `extensionRunner.createContext()`.
 - [x] Bypass `tool_call` / `tool_result` hooks intentionally.
-- [ ] Provide a UI path to abort a running Manual Tool Run.
+- [x] Provide a UI path to abort a running Manual Tool Run.
 - [ ] Support `onUpdate` by rendering the latest partial result in the pending widget while storing only the final result.
 - [x] Preserve thrown-error behavior as explicit text tool result.
-- [ ] Display aborted Manual Tool Runs as error results and clear/dispose in `finally`.
+- [x] Display aborted Manual Tool Runs as error results and clear/dispose in `finally`.
 
 ### UI integration
 

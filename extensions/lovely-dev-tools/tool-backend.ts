@@ -15,6 +15,8 @@ import {
 export type ToolBackend = {
 	diagnostics: AgentSessionRuntimeDiagnostic[]
 	run(toolName: string, toolArgs: Record<string, unknown>, toolCallId: string): Promise<AgentToolResult<unknown>>
+	abort(): void
+	isAborted(): boolean
 	dispose(): void
 }
 
@@ -68,6 +70,7 @@ export async function createToolBackend(ctx: ExtensionCommandContext, activeTool
 	created.session.setActiveToolsByName(activeTools)
 	created.session.extensionRunner.setUIContext(ctx.ui)
 	const diagnostics = [...services.diagnostics]
+	let abort: AbortController | undefined
 	return {
 		diagnostics,
 		async run(toolName, toolArgs, toolCallId) {
@@ -78,8 +81,14 @@ export async function createToolBackend(ctx: ExtensionCommandContext, activeTool
 				)
 			}
 			const args = prepareArgs(definition, toolArgs)
-			const abort = new AbortController()
+			abort = new AbortController()
 			return definition.execute(toolCallId, args, abort.signal, undefined, created.session.extensionRunner.createContext())
+		},
+		abort() {
+			abort?.abort()
+		},
+		isAborted() {
+			return abort?.signal.aborted === true
 		},
 		dispose() {
 			created.session.dispose()
