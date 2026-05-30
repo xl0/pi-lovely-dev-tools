@@ -4,7 +4,7 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 
 ## Structure
 
-- `package.json`: npm/pi package manifest. Pi loads `./extensions` and links `assets/demo.mp4` through `pi.video` using a raw GitHub URL. `assets/` is intentionally excluded from published npm files. Peer/dev deps include `@earendil-works/pi-ai` for direct `validateToolArguments()` imports.
+- `package.json`: npm/pi package manifest for “Pi extension package with interactive debugging helpers.” Pi loads `./extensions` and links `assets/demo.mp4` through `pi.video` using a raw GitHub URL. `assets/` is intentionally excluded from published npm files. Peer/dev deps include `@earendil-works/pi-ai` for direct `validateToolArguments()` imports.
 - `CONTEXT.md`: domain language for Manual Tool Runs, the Manual Tool Runner, Agent Tool Calls, Nested Execution Sessions, and Bridged Tool UI.
 - `docs/adr/0001-manual-tool-runner-stays-extension.md`: decision to keep `/tool` as an extension and use a nested SDK session for execution.
 - `extensions/lovely-dev-tools/index.ts`: small extension entrypoint. Registers command modules and hidden-message filters.

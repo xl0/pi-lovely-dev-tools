@@ -1,6 +1,7 @@
 {
 	"name": "@xl0/pi-lovely-dev-tools",
 	"version": "0.2.0",
+	"description": "Pi interactive tool debug commands /tool /show-sysprompt",
 	"keywords": [
 		"pi-package",
 		"dev tools",

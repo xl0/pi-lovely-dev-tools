@@ -49,3 +49,14 @@ Load without installing:
 ```bash
 pi -e npm:@xl0/pi-lovely-dev-tools
 ```
+
+## Related projects
+
+|  |  |
+| --- | --- |
+| [Pi Lovely Web](https://github.com/xl0/pi-lovely-web) | `web_search`, `web_fetch`, `web_image` via Firecrawl, Exa, Tavily, Brave |
+| [Pi Lovely IDE](https://github.com/xl0/pi-lovely-ide) | IDE integration |
+
+---
+
+Like this work? [Hire me](https://alexey.work/cv?ref=pi-lovely-dev-tools)
