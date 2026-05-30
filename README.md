@@ -4,8 +4,6 @@ Pi extension package with interactive debugging helpers.
 
 ## Demo
 
-[![Demo](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/demo.gif)](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/demo.mp4)
-
 ## Commands
 
 ### `/tool [tool_name] [flat args...]`
@@ -27,15 +25,18 @@ Examples:
 /tool bash "sleep 30"  # press Esc to abort
 ```
 
-### `/show-sysprompt`
 
-Show the current rendered system prompt and active tool schemas as collapsible custom messages. These entries are hidden from LLM context and omitted from session tree summaries.
+[![Demo](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/demo.gif)](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/demo.mp4)
 
-## `/tool` execution model
+##### How it works
 
 Pi extensions can see tool schemas, but not executable tool definitions. For each Manual Tool Run this command creates a short-lived in-memory Nested Execution Session using Pi SDK, mirrors startup extensions/flags, resolves the selected executable tool there, runs it directly, then disposes the nested session.
 
 The outer session owns selection, argument editing, pending UI, final display, and hidden-from-context messages. Manual Tool Runs intentionally bypass Agent Tool Policy hooks.
+
+### `/show-sysprompt`
+
+Show the current rendered system prompt and active tool schemas. Use this to better undersand why your agent behaves the way it does.
 
 ## Install
 
