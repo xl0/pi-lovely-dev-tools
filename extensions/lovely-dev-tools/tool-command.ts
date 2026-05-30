@@ -64,7 +64,8 @@ async function selectTool(ctx: ExtensionCommandContext, tools: ToolInfo[], activ
 					const state = activeTools.has(tool.name) ? "active" : "inactive"
 					const name = listTheme.label(tool.name, isSelected)
 					const descriptionWidth = Math.max(1, width - visibleWidth(prefix) - visibleWidth(tool.name) - state.length - 8)
-					const description = theme.fg("dim", truncateToWidth(tool.description, descriptionWidth, ""))
+					const flatDescription = tool.description.replace(/\s+/g, " ").trim()
+					const description = theme.fg("dim", truncateToWidth(flatDescription, descriptionWidth, ""))
 					lines.push(truncateToWidth(`${prefix}${name} ${theme.fg("dim", `(${state})`)}  ${description}`, width))
 				}
 				if (startIndex > 0 || endIndex < filteredTools.length)
@@ -273,7 +274,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 			const tools = [...pi.getAllTools()].sort((a: ToolInfo, b: ToolInfo) => a.name.localeCompare(b.name))
 			const filtered = fuzzyFilter(tools, prefix, tool => tool.name)
 			if (filtered.length === 0) return null
-			return filtered.map(tool => ({ value: `${tool.name} `, label: tool.name, description: tool.description }))
+			return filtered.map(tool => ({ value: `${tool.name} `, label: tool.name, description: tool.description.replace(/\s+/g, " ").trim() }))
 		},
 		async handler(args, ctx) {
 			if (!ctx.hasUI) {
