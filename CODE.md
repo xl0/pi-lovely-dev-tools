@@ -14,6 +14,7 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 - `extensions/lovely-dev-tools/tool-command.ts`: `/tool` selector, flat arg parsing, focused pending run component, result/image rendering.
 - `extensions/lovely-dev-tools/tool-backend.ts`: single-use Nested Execution Session backend for Manual Tool Runs.
 - `extensions/lovely-dev-tools/show-sysprompt.ts`: `/show-sysprompt` command and collapsible renderers.
+- `extensions/lovely-dev-tools/show-context.ts`: `/show-context` Context Read Map snapshot collection and renderer.
 - `assets/demo.mp4`: source demo video kept in repo, not shipped in npm package.
 - `assets/demo.gif`: npm/GitHub-compatible README demo preview kept in repo, not shipped in npm package.
 - `tsconfig.json`, `biome.json`: strict TypeScript and Biome config.
@@ -62,6 +63,14 @@ While running, a focused custom component shows the pending call, Esc abort hint
 - success uses `toolSuccessBg`
 
 `resultText()` renders text blocks directly and non-text/non-image blocks as `[type]` plus JSON details. Image result blocks are normalized from either top-level or `source`-shaped data, then render inline when supported; otherwise the original image bytes are saved under `/tmp/pi-tool-image-<uuid>.<ext>` and the text fallback points to that path. Non-PNG image blocks are converted with Pi's `convertToPng()` before storing results for Kitty-compatible terminals. Conversion/save failures are warnings and display degradation, not Manual Tool Run failures.
+
+### `/show-context`
+
+`/show-context` waits for idle, computes a snapshot from Pi's structured system prompt options plus `buildSessionContext()` messages, and emits one displayed custom message hidden from LLM context. It renders a Context Read Map: one row per file, with context files first, advertised skills second, and other read files by most recent evidence. Internally paths are normalized absolute; display paths are relative inside `cwd` and absolute outside it.
+
+Evidence kinds are startup context file ranges, advertised skill frontmatter metadata, `/skill:name` loaded skill body ranges, and successful `read` tool results matched by `toolCallId`. Compacted-away reads naturally disappear because collection uses the built model context, not raw branch history. File line counts are queried at command execution; missing files remain visible using evidence range length and a warning marker. Skill body detection only considers messages that start with a skill block, so quoted skill XML in normal conversation is ignored.
+
+Rendering uses 10 lines per cell, no cell cap, count glyphs (`·`, `▪`, `■`, `█`), fixed system-prompt coloring for startup context and advertised skills, loaded-skill coloring for injected skill bodies, and recency coloring for read-tool evidence. Wide terminals use a fixed 50-column middle-truncated filename column with aligned bars; filenames carry OSC8 `file://` links to full absolute paths. Narrow terminals put bars under filenames.
 
 ### `/show-sysprompt`
 

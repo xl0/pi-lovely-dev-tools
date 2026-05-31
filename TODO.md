@@ -22,6 +22,7 @@ Implemented:
 - [x] README cleaned for release
 - [x] `bun run check` passes
 - [x] package dry-run checked
+- [x] `/show-context` Context Read Map command
 
 ## Remaining work
 

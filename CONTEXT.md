@@ -20,6 +20,30 @@ _Avoid_: automatic tool run, normal tool execution
 Extension-defined gating or result transformation applied to an **Agent Tool Call**.
 _Avoid_: tool hook, permission hook
 
+**Effective LLM Context**:
+The current branch's resolved message sequence that Pi builds for the model after branch traversal and compaction, excluding this extension's hidden diagnostic messages.
+_Avoid_: session history, context state, full transcript
+
+**Context Read Map**:
+A visual file coverage view derived from file-backed evidence present in the **Effective LLM Context**, including tool reads and startup context files.
+_Avoid_: read history, file explorer, coverage report
+
+**Startup Context File**:
+A file loaded into the system prompt before the model runs, such as an `AGENTS.md` discovered for the session.
+_Avoid_: sysprompt file, project rule file
+
+**Advertised Skill**:
+A discovered skill whose name, description, and location are included in the system prompt, without including its instruction body.
+_Avoid_: loaded skill
+
+**Skill Metadata Lines**:
+The frontmatter lines of an **Advertised Skill** that correspond to its system-prompt metadata.
+_Avoid_: loaded skill body
+
+**Loaded Skill Body**:
+The body of a skill file injected into the **Effective LLM Context** by `/skill:name`, excluding frontmatter.
+_Avoid_: whole skill, advertised skill
+
 **Static Startup Tool**:
 A tool loaded from built-ins, discovered settings/packages/extensions, current process `-e`/`--extension` arguments, or startup extension flag values during session startup.
 _Avoid_: static tool, reproducible tool
@@ -60,8 +84,16 @@ _Avoid_: second TUI, nested terminal
 - Saved fallback image files are left for the OS temp cleanup rather than tracked or deleted by the extension.
 - The outer **Manual Tool Run** message records image fallback paths so reloaded sessions retain the display context.
 - The **Manual Tool Runner** may require current Pi helper exports and fail to load on stale Pi installs.
+- The **Context Read Map** requires Pi's structured system prompt options API to inspect **Startup Context Files** and **Advertised Skills**.
 - A **Manual Tool Run** only guarantees execution for **Static Startup Tools**; tools added dynamically during the current session may be visible but fail explicitly.
 - Extension CLI flags are part of startup state; nested execution mirrors them so `pi.getFlag()`-dependent tools behave like the outer session.
+- The **Effective LLM Context** excludes hidden **Manual Tool Run** messages.
+- A **Context Read Map** ignores context mutations made by other extensions.
+- A **Context Read Map** is displayed as a custom message and filtered out of the **Effective LLM Context**.
+- A **Context Read Map** lists **Startup Context Files** and **Advertised Skills** before files known through read-tool evidence.
+- A **Context Read Map** maps an **Advertised Skill** to its **Skill Metadata Lines** and colors them like other system-prompt file content.
+- A **Context Read Map** maps a **Loaded Skill Body** to the body lines of its skill file, excluding frontmatter.
+- A **Context Read Map** summarizes file reads that are still visible in the **Effective LLM Context**; compacted-away reads are not shown unless represented by current context messages.
 
 ## Example dialogue
 
@@ -73,3 +105,4 @@ _Avoid_: second TUI, nested terminal
 - "manual tool execution" was resolved as **Manual Tool Run** when referring to one invocation, and **Manual Tool Runner** when referring to the feature.
 - "active tool" was resolved as **Agent Tool Call** availability only; inactive tools may still be invoked by a **Manual Tool Run**.
 - "child session" was resolved as **Nested Execution Session**: a single-use source of tool definitions and runtime context, not an agent-loop session for **Manual Tool Runs**.
+- "current context state" was resolved as **Effective LLM Context**, not raw session history or full transcript.

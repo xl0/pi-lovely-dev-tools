@@ -38,6 +38,10 @@ The outer session owns selection, argument editing, pending UI, final display, a
 
 Show the current rendered system prompt and active tool schemas. Use this to better undersand why your agent behaves the way it does.
 
+### `/show-context`
+
+Show a file coverage map for the current model context. The map includes startup context files, advertised skill metadata, loaded skill bodies, and `read` tool results that survived compaction. The message is visible in chat and hidden from LLM context.
+
 ## Install
 
 ```bash
