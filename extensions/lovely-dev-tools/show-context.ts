@@ -66,11 +66,21 @@ function currentLineCount(path: string, fallback: number) {
 	return { totalLines: Math.max(1, countLines(readFileSync(path, "utf8"))), missing: false }
 }
 
-function getFile(files: Map<string, FileEvidence>, cwd: string, path: string, order: number, fallbackLines: number) {
+function getFile(
+	files: Map<string, FileEvidence>,
+	cwd: string,
+	path: string,
+	order: number,
+	fallbackLines: number,
+	totalLinesOverride?: number
+) {
 	const normalized = normalizePath(cwd, path)
 	const existing = files.get(normalized)
 	if (existing) return existing
-	const { totalLines, missing } = currentLineCount(normalized, fallbackLines)
+	const { totalLines, missing } =
+		totalLinesOverride === undefined
+			? currentLineCount(normalized, fallbackLines)
+			: { totalLines: Math.max(1, totalLinesOverride), missing: !existsSync(normalized) }
 	const file: FileEvidence = {
 		path: normalized,
 		displayPath: displayPath(cwd, normalized),
@@ -83,8 +93,15 @@ function getFile(files: Map<string, FileEvidence>, cwd: string, path: string, or
 	return file
 }
 
-function addEvidence(files: Map<string, FileEvidence>, cwd: string, path: string, source: EvidenceSource, order: number) {
-	const file = getFile(files, cwd, path, order, source.range.endLine)
+function addEvidence(
+	files: Map<string, FileEvidence>,
+	cwd: string,
+	path: string,
+	source: EvidenceSource,
+	order: number,
+	totalLinesOverride?: number
+) {
+	const file = getFile(files, cwd, path, order, source.range.endLine, totalLinesOverride)
 	file.sources.push(source)
 }
 
@@ -119,6 +136,12 @@ function messageText(message: unknown) {
 			return textBlock.type === "text" && typeof textBlock.text === "string" ? textBlock.text : ""
 		})
 		.join("\n")
+}
+
+function hasMediaContent(message: unknown) {
+	if (!isRecord(message) || !("content" in message)) return false
+	const content = (message as { content?: unknown }).content
+	return Array.isArray(content) && content.some(block => isRecord(block) && (block as { type?: unknown }).type === "image")
 }
 
 function readCallFromBlock(block: unknown): ReadCall | undefined {
@@ -183,6 +206,10 @@ function collectContextReadMap(ctx: ExtensionCommandContext): ContextReadMapDeta
 		) {
 			const call = readCalls.get(contextMessage.toolCallId)
 			if (!call) continue
+			if (hasMediaContent(message)) {
+				addEvidence(files, cwd, call.path, { kind: "tool-read", range: { startLine: 1, endLine: 1 }, ordinal: ordinal++ }, order++, 1)
+				continue
+			}
 			const startLine = Math.max(1, call.offset ?? 1)
 			let lineCount = countLines(messageText(message))
 			if (typeof call.limit === "number") lineCount = Math.min(lineCount, call.limit)
@@ -260,7 +287,7 @@ function renderBarCells(file: FileEvidence, maxOrdinal: number, theme: Theme) {
 			if (priorityDiff !== 0) return priorityDiff > 0 ? source : best
 			return source.ordinal > best.ordinal ? source : best
 		})
-		cells.push(colorCell(glyph, strongest.kind, strongest.ordinal, maxOrdinal, theme))
+		cells.push(osc8(colorCell(glyph, strongest.kind, strongest.ordinal, maxOrdinal, theme), fileUrl(file.path, start)))
 	}
 	return cells
 }
@@ -292,6 +319,14 @@ function osc8(text: string, url: string) {
 	return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`
 }
 
+function fileUrl(path: string, startLine?: number, endLine?: number) {
+	const { TERM_PROGRAM } = process.env
+	if (TERM_PROGRAM === "vscode" && startLine !== undefined) return `vscode://file${path}:${startLine}:1`
+	const lineFragment =
+		startLine === undefined ? "" : `#L${startLine}${endLine === undefined || endLine === startLine ? "" : `-L${endLine}`}`
+	return `${pathToFileURL(path).href}${lineFragment}`
+}
+
 function renderSnapshot(details: ContextReadMapDetails, width: number, theme: Theme) {
 	if (details.files.length === 0) return "No file-backed context evidence."
 	const maxOrdinal = Math.max(0, ...details.files.flatMap(file => file.sources.map(source => source.ordinal)))
@@ -306,8 +341,9 @@ function renderSnapshot(details: ContextReadMapDetails, width: number, theme: Th
 	]
 	for (const file of details.files) {
 		const displayName = truncatePath(file.displayPath, pathWidth)
-		const paddedName = osc8(displayName.padStart(pathWidth), pathToFileURL(file.path).href)
-		const name = file.missing ? theme.fg("warning", paddedName) : paddedName
+		const padding = " ".repeat(Math.max(0, pathWidth - displayName.length))
+		const linkedName = `${padding}${osc8(displayName, fileUrl(file.path))}`
+		const name = file.missing ? theme.fg("warning", linkedName) : linkedName
 		const cells = renderBarCells(file, maxOrdinal, theme)
 		if (wide) {
 			const wrapped = wrapBar(cells, Math.max(10, width - pathWidth - 3))
