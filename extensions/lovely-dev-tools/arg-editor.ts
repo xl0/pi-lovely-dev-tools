@@ -394,6 +394,7 @@ export async function editToolArgs(ui: ExtensionUIContext, tool: EditableTool): 
 
 		return {
 			render: (width: number) => {
+				const fitLine = (line: string) => truncateToWidth(line.replace(/[\r\n\t]+/g, " "), width, "")
 				const selected = selectedRow()
 				const lines: string[] = [theme.fg("accent", theme.bold(`Arguments for ${tool.name}`))]
 				const selectedSummary = selected && selected.kind !== "item" ? schemaSummaryLines(selected.schema, selected.required) : []
@@ -410,7 +411,8 @@ export async function editToolArgs(ui: ExtensionUIContext, tool: EditableTool): 
 					if (line) lines.push(listTheme.description(`  ${line}`))
 					else lines.push("")
 				}
-				lines.push(theme.fg("dim", selectionHelpText()), "")
+				for (const line of wrapText(selectionHelpText(), width)) lines.push(theme.fg("dim", line))
+				lines.push("")
 
 				const maxVisible = 16
 				const startIndex = Math.max(
@@ -442,7 +444,7 @@ export async function editToolArgs(ui: ExtensionUIContext, tool: EditableTool): 
 				lines.push(
 					startIndex > 0 || endIndex < state.rows.length ? listTheme.hint(`  (${state.selectedIndex + 1}/${state.rows.length})`) : ""
 				)
-				return lines
+				return lines.map(fitLine)
 			},
 			invalidate: () => state.activeInput?.invalidate(),
 			handleInput: (data: string) => {
