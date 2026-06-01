@@ -43,7 +43,10 @@ type ReadCall = {
 }
 
 const LINES_PER_CELL = 10
-const GLYPHS = [" ", "·", "▪", "■", "█"]
+const EMPTY_GLYPH = "ˍ"
+const BRAILLE_BASE = 0x2800
+const LEFT_DOTS_BY_COUNT = [0, 64, 68, 70, 71] as const
+const RIGHT_DOTS_BY_COUNT = [0, 128, 160, 176, 184] as const
 
 function normalizePath(cwd: string, path: string) {
 	return isAbsolute(path) ? resolve(path) : resolve(cwd, path)
@@ -256,13 +259,9 @@ function sourcePriority(kind: EvidenceKind) {
 	return 1
 }
 
-function magenta(text: string) {
-	return `\x1b[35m${text}\x1b[39m`
-}
-
 function colorCell(text: string, kind: EvidenceKind, ordinal: number, maxOrdinal: number, theme: Theme) {
-	if (kind === "startup-context" || kind === "advertised-skill") return theme.fg("accent", text)
-	if (kind === "loaded-skill-body") return magenta(text)
+	if (kind === "startup-context" || kind === "advertised-skill") return theme.fg("borderAccent", text)
+	if (kind === "loaded-skill-body") return theme.fg("accent", text)
 	if (maxOrdinal <= 0) return theme.fg("toolOutput", text)
 	const recency = ordinal / maxOrdinal
 	if (recency > 0.66) return theme.fg("warning", text)
@@ -270,18 +269,28 @@ function colorCell(text: string, kind: EvidenceKind, ordinal: number, maxOrdinal
 	return theme.fg("dim", text)
 }
 
+function readCountGlyph(leftCount: number, rightCount: number) {
+	if (leftCount === 0 && rightCount === 0) return EMPTY_GLYPH
+	const leftDots = LEFT_DOTS_BY_COUNT[Math.min(leftCount, LEFT_DOTS_BY_COUNT.length - 1)] ?? 0
+	const rightDots = RIGHT_DOTS_BY_COUNT[Math.min(rightCount, RIGHT_DOTS_BY_COUNT.length - 1)] ?? 0
+	return String.fromCodePoint(BRAILLE_BASE + leftDots + rightDots)
+}
+
 function renderBarCells(file: FileEvidence, maxOrdinal: number, theme: Theme) {
 	const cellCount = Math.max(1, Math.ceil(file.totalLines / LINES_PER_CELL))
 	const cells: string[] = []
 	for (let index = 0; index < cellCount; index++) {
 		const start = index * LINES_PER_CELL + 1
+		const middle = Math.min(file.totalLines, start + LINES_PER_CELL / 2 - 1)
 		const end = Math.min(file.totalLines, start + LINES_PER_CELL - 1)
 		const overlapping = file.sources.filter(source => source.range.startLine <= end && source.range.endLine >= start)
 		if (overlapping.length === 0) {
-			cells.push(theme.fg("dim", "_"))
+			cells.push(theme.fg("dim", EMPTY_GLYPH))
 			continue
 		}
-		const glyph = GLYPHS[Math.min(overlapping.length, GLYPHS.length - 1)] ?? "█"
+		const leftCount = overlapping.filter(source => source.range.startLine <= middle && source.range.endLine >= start).length
+		const rightCount = overlapping.filter(source => source.range.startLine <= end && source.range.endLine > middle).length
+		const glyph = readCountGlyph(leftCount, rightCount)
 		const strongest = overlapping.reduce((best, source) => {
 			const priorityDiff = sourcePriority(source.kind) - sourcePriority(best.kind)
 			if (priorityDiff !== 0) return priorityDiff > 0 ? source : best
@@ -334,9 +343,9 @@ function renderSnapshot(details: ContextReadMapDetails, width: number, theme: Th
 	const pathWidth = 50
 	const lines = [
 		theme.fg("accent", theme.bold("Context read map")),
-		theme.fg("dim", `10 lines/cell · ${details.files.length} files`),
-		`${theme.fg("dim", "count:")} ${theme.fg("dim", "_")} unread  ${theme.fg("dim", "·")} 1  ${theme.fg("dim", "▪")} 2  ${theme.fg("dim", "■")} 3  ${theme.fg("dim", "█")} 4+`,
-		`${theme.fg("dim", "source:")} ${theme.fg("accent", "█")} system/skill metadata  ${magenta("█")} loaded skill body  ${theme.fg("warning", "█")} recent read  ${theme.fg("toolTitle", "█")} mid read  ${theme.fg("dim", "█")} old read`,
+		theme.fg("dim", `${details.linesPerCell} lines/cell · ${details.files.length} files`),
+		`${theme.fg("dim", "count:")} ${theme.fg("dim", EMPTY_GLYPH)} unread  ${theme.fg("dim", "⣀")} 1  ${theme.fg("dim", "⣤")} 2  ${theme.fg("dim", "⣶")} 3  ${theme.fg("dim", "⣿")} 4+`,
+		`${theme.fg("dim", "source:")} ${theme.fg("borderAccent", "system/skill metadata")}  ${theme.fg("accent", "loaded skill body")}  ${theme.fg("warning", "recent read")}  ${theme.fg("toolTitle", "mid read")}  ${theme.fg("dim", "old read")}`,
 		""
 	]
 	for (const file of details.files) {
