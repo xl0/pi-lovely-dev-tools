@@ -18,6 +18,7 @@ type EvidenceSource = {
 	kind: EvidenceKind
 	range: EvidenceRange
 	ordinal: number
+	media?: boolean
 }
 
 type FileEvidence = {
@@ -43,7 +44,7 @@ type ReadCall = {
 }
 
 const LINES_PER_CELL = 10
-const EMPTY_GLYPH = "ˍ"
+const EMPTY_GLYPH = " "
 const BRAILLE_BASE = 0x2800
 const LEFT_DOTS_BY_COUNT = [0, 64, 68, 70, 71] as const
 const RIGHT_DOTS_BY_COUNT = [0, 128, 160, 176, 184] as const
@@ -210,7 +211,14 @@ function collectContextReadMap(ctx: ExtensionCommandContext): ContextReadMapDeta
 			const call = readCalls.get(contextMessage.toolCallId)
 			if (!call) continue
 			if (hasMediaContent(message)) {
-				addEvidence(files, cwd, call.path, { kind: "tool-read", range: { startLine: 1, endLine: 1 }, ordinal: ordinal++ }, order++, 1)
+				addEvidence(
+					files,
+					cwd,
+					call.path,
+					{ kind: "tool-read", range: { startLine: 1, endLine: 1 }, ordinal: ordinal++, media: true },
+					order++,
+					1
+				)
 				continue
 			}
 			const startLine = Math.max(1, call.offset ?? 1)
@@ -288,8 +296,11 @@ function renderBarCells(file: FileEvidence, maxOrdinal: number, theme: Theme) {
 			cells.push(theme.fg("dim", EMPTY_GLYPH))
 			continue
 		}
-		const leftCount = overlapping.filter(source => source.range.startLine <= middle && source.range.endLine >= start).length
-		const rightCount = overlapping.filter(source => source.range.startLine <= end && source.range.endLine > middle).length
+		const mediaCount = overlapping.filter(source => source.media).length
+		const leftCount =
+			mediaCount + overlapping.filter(source => !source.media && source.range.startLine <= middle && source.range.endLine >= start).length
+		const rightCount =
+			mediaCount + overlapping.filter(source => !source.media && source.range.startLine <= end && source.range.endLine > middle).length
 		const glyph = readCountGlyph(leftCount, rightCount)
 		const strongest = overlapping.reduce((best, source) => {
 			const priorityDiff = sourcePriority(source.kind) - sourcePriority(best.kind)
@@ -342,10 +353,9 @@ function renderSnapshot(details: ContextReadMapDetails, width: number, theme: Th
 	const wide = width >= 150
 	const pathWidth = 50
 	const lines = [
-		theme.fg("accent", theme.bold("Context read map")),
-		theme.fg("dim", `${details.linesPerCell} lines/cell · ${details.files.length} files`),
-		`${theme.fg("dim", "count:")} ${theme.fg("dim", EMPTY_GLYPH)} unread  ${theme.fg("dim", "⣀")} 1  ${theme.fg("dim", "⣤")} 2  ${theme.fg("dim", "⣶")} 3  ${theme.fg("dim", "⣿")} 4+`,
-		`${theme.fg("dim", "source:")} ${theme.fg("borderAccent", "system/skill metadata")}  ${theme.fg("accent", "loaded skill body")}  ${theme.fg("warning", "recent read")}  ${theme.fg("toolTitle", "mid read")}  ${theme.fg("dim", "old read")}`,
+		`${theme.fg("accent", theme.bold("Context read map"))} ${`One cell = ${details.linesPerCell} lines · ${details.files.length} files total`}`,
+		`${theme.fg("dim", "Read count:")}  ${theme.fg("dim", "⣀")} 1  ${theme.fg("dim", "⣤")} 2  ${theme.fg("dim", "⣶")} 3  ${theme.fg("dim", "⣿")} 4+`,
+		`${theme.fg("dim", "Type:")} ${theme.fg("borderAccent", "system prompt")}  ${theme.fg("accent", "skill loaded")} Read tool: [ ${theme.fg("warning", "recent")} / ${theme.fg("toolTitle", "mid")} / ${theme.fg("dim", "old")} ]`,
 		""
 	]
 	for (const file of details.files) {
