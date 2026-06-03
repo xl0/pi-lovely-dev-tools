@@ -10,6 +10,7 @@ type LlmStatsRow = {
 	start: string
 	fresh: number
 	cacheRead: number
+	cacheWrite: number
 	input: number
 	output: number
 	stop: string
@@ -55,6 +56,7 @@ function pad(value: string, width: number, right = false): string {
 
 function formatRows(rows: LlmStatsRow[]): string {
 	if (rows.length === 0) return "No assistant messages with usage."
+	const showCacheWrite = rows.some(row => row.cacheWrite !== 0)
 	const widths = {
 		index: Math.max(1, `${rows.length}`.length),
 		id: Math.max("id".length, ...rows.map(row => row.id.length)),
@@ -63,6 +65,7 @@ function formatRows(rows: LlmStatsRow[]): string {
 		fresh: Math.max("fresh".length, ...rows.map(row => shortNumber(row.fresh).length)),
 		stop: Math.max("stop".length, ...rows.map(row => row.stop.length)),
 		cacheRead: Math.max("cacheR".length, ...rows.map(row => shortNumber(row.cacheRead).length)),
+		cacheWrite: Math.max("cacheW".length, ...rows.map(row => shortNumber(row.cacheWrite).length)),
 		input: Math.max("input".length, ...rows.map(row => shortNumber(row.input).length)),
 		output: Math.max("output".length, ...rows.map(row => shortNumber(row.output).length))
 	}
@@ -74,6 +77,7 @@ function formatRows(rows: LlmStatsRow[]): string {
 		pad("fresh", widths.fresh, true),
 		"+",
 		pad("cacheR", widths.cacheRead, true),
+		...(showCacheWrite ? ["+", pad("cacheW", widths.cacheWrite, true)] : []),
 		"=",
 		pad("input", widths.input, true),
 		pad("output", widths.output, true),
@@ -89,6 +93,7 @@ function formatRows(rows: LlmStatsRow[]): string {
 			pad(shortNumber(row.fresh), widths.fresh, true),
 			"+",
 			pad(shortNumber(row.cacheRead), widths.cacheRead, true),
+			...(showCacheWrite ? ["+", pad(shortNumber(row.cacheWrite), widths.cacheWrite, true)] : []),
 			"=",
 			pad(shortNumber(row.input), widths.input, true),
 			pad(shortNumber(row.output), widths.output, true),
@@ -128,7 +133,8 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 				const usage = message.usage
 				const fresh = numberValue(usage.input)
 				const cacheRead = numberValue(usage.cacheRead)
-				const input = fresh + cacheRead
+				const cacheWrite = numberValue(usage.cacheWrite)
+				const input = fresh + cacheRead + cacheWrite
 				const output = numberValue(usage.output)
 				rows.push({
 					index: index++,
@@ -137,6 +143,7 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 					start: callInitiator(previousMessages),
 					fresh,
 					cacheRead,
+					cacheWrite,
 					input,
 					output,
 					stop: typeof message.stopReason === "string" ? message.stopReason : "-",
