@@ -70,7 +70,7 @@ function pad(value: string, width: number, right = false): string {
 	return right ? value.padStart(width) : value.padEnd(width)
 }
 
-function formatRows(rows: LlmStatsRow[]): string {
+function formatRows(rows: LlmStatsRow[], theme: Theme): string {
 	if (rows.length === 0) return "No assistant messages with usage."
 	const showCacheWrite = rows.some(row => row.cacheWrite !== 0)
 	const widths = {
@@ -100,15 +100,20 @@ function formatRows(rows: LlmStatsRow[]): string {
 		pad("stop", widths.stop),
 		"tools"
 	].join("  ")
-	const body = rows.map(row =>
-		[
+	const body = rows.map((row, rowIndex) => {
+		const previous = rows[rowIndex - 1]
+		let cacheRead = pad(shortNumber(row.cacheRead), widths.cacheRead, true)
+		if (previous && row.cacheRead < previous.cacheRead) {
+			cacheRead = theme.fg(row.cacheRead < previous.cacheRead * 0.5 ? "error" : "warning", cacheRead)
+		}
+		return [
 			pad(`${row.index}`, widths.index, true),
 			pad(row.delta, widths.delta, true),
 			pad(row.model, widths.model),
 			pad(row.start, widths.start),
 			pad(shortNumber(row.fresh), widths.fresh, true),
 			"+",
-			pad(shortNumber(row.cacheRead), widths.cacheRead, true),
+			cacheRead,
 			...(showCacheWrite ? ["+", pad(shortNumber(row.cacheWrite), widths.cacheWrite, true)] : []),
 			"=",
 			pad(shortNumber(row.input), widths.input, true),
@@ -116,7 +121,7 @@ function formatRows(rows: LlmStatsRow[]): string {
 			pad(row.stop, widths.stop),
 			row.tools
 		].join("  ")
-	)
+	})
 	return [header, ...body].join("\n")
 }
 
@@ -124,7 +129,7 @@ function renderStats(details: unknown, theme: Theme) {
 	const stats = isRecord(details) ? (details as { rows?: unknown }) : undefined
 	const rows = Array.isArray(stats?.rows) ? (stats.rows as LlmStatsRow[]) : []
 	const box = new Box(1, 1, value => theme.bg("customMessageBg", value))
-	box.addChild(new Text(`${theme.fg("accent", theme.bold("LLM stats"))}\n\n${formatRows(rows)}`, 0, 0))
+	box.addChild(new Text(`${theme.fg("accent", theme.bold("LLM stats"))}\n\n${formatRows(rows, theme)}`, 0, 0))
 	return box
 }
 
