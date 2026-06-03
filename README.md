@@ -42,6 +42,8 @@ Show the current rendered system prompt and active tool schemas. Use this to bet
 
 Show a file coverage map for the current model context. The map includes startup context files, advertised skill metadata, loaded skill bodies, and `read` tool results that survived compaction. The message is visible in chat and hidden from LLM context.
 
+![Context read map](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/show-context.png)
+
 ## Install
 
 ```bash
