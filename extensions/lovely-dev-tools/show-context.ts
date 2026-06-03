@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent"
 import { buildSessionContext, parseSkillBlock, type SessionEntry } from "@earendil-works/pi-coding-agent"
-import { Box, Text, type Component } from "@earendil-works/pi-tui"
+import { Box, type Component, Text } from "@earendil-works/pi-tui"
 import { CONTEXT_READ_MAP_MESSAGE_TYPE } from "./messages"
 import { isRecord } from "./schema"
 
