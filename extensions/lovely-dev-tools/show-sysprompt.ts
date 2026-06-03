@@ -14,6 +14,15 @@ function formatCollapsibleMessage(title: string, content: string, expanded: bool
 	return box
 }
 
+type CollapsibleMessageDetails = {
+	content: string
+}
+
+function detailsContent(details: unknown): string {
+	const content = (details as { content?: unknown } | undefined)?.content
+	return typeof content === "string" ? content : ""
+}
+
 function formatToolSchemas(tools: ToolInfo[]): string {
 	if (tools.length === 0) return "No active tools."
 	return tools
@@ -39,10 +48,10 @@ function formatToolSchemas(tools: ToolInfo[]): string {
 
 export function registerShowSyspromptCommand(pi: ExtensionAPI) {
 	pi.registerMessageRenderer(SYSTEM_PROMPT_MESSAGE_TYPE, (message, { expanded }, theme) =>
-		formatCollapsibleMessage("System prompt", typeof message.content === "string" ? message.content : "", expanded, theme)
+		formatCollapsibleMessage("System prompt", detailsContent(message.details), expanded, theme)
 	)
 	pi.registerMessageRenderer(TOOL_SCHEMAS_MESSAGE_TYPE, (message, { expanded }, theme) =>
-		formatCollapsibleMessage("Available tools", typeof message.content === "string" ? message.content : "", expanded, theme)
+		formatCollapsibleMessage("Available tools", detailsContent(message.details), expanded, theme)
 	)
 
 	pi.registerCommand("show-sysprompt", {
@@ -50,11 +59,19 @@ export function registerShowSyspromptCommand(pi: ExtensionAPI) {
 		async handler(_args, ctx) {
 			await ctx.waitForIdle()
 			const activeTools = new Set(pi.getActiveTools())
-			pi.sendMessage({ customType: SYSTEM_PROMPT_MESSAGE_TYPE, content: ctx.getSystemPrompt(), display: true })
+			pi.sendMessage({
+				customType: SYSTEM_PROMPT_MESSAGE_TYPE,
+				content: "",
+				display: true,
+				details: { content: ctx.getSystemPrompt() } satisfies CollapsibleMessageDetails
+			})
 			pi.sendMessage({
 				customType: TOOL_SCHEMAS_MESSAGE_TYPE,
-				content: formatToolSchemas(pi.getAllTools().filter(tool => activeTools.has(tool.name))),
-				display: true
+				content: "",
+				display: true,
+				details: {
+					content: formatToolSchemas(pi.getAllTools().filter(tool => activeTools.has(tool.name)))
+				} satisfies CollapsibleMessageDetails
 			})
 		}
 	})

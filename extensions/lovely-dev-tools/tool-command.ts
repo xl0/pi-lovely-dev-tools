@@ -401,7 +401,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 				}
 				pi.sendMessage({
 					customType: RUN_TOOL_MESSAGE_TYPE,
-					content: resultText(result, imageFallbacks),
+					content: "",
 					display: true,
 					details: { toolName, toolArgs, toolCallId, result, isError, timestamp: Date.now(), imageFallbacks } satisfies RunToolDetails
 				})

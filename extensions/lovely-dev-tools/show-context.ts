@@ -415,7 +415,7 @@ export function registerShowContextCommand(pi: ExtensionAPI) {
 		if (details) {
 			box.addChild(new ContextReadMapView(details, theme))
 		} else {
-			box.addChild(new Text(typeof message.content === "string" ? message.content : "Invalid context read map.", 0, 0))
+			box.addChild(new Text("Invalid context read map.", 0, 0))
 		}
 		return box
 	})
@@ -425,7 +425,7 @@ export function registerShowContextCommand(pi: ExtensionAPI) {
 		async handler(_args, ctx) {
 			await ctx.waitForIdle()
 			const details = collectContextReadMap(ctx)
-			pi.sendMessage({ customType: CONTEXT_READ_MAP_MESSAGE_TYPE, content: "Context read map", display: true, details })
+			pi.sendMessage({ customType: CONTEXT_READ_MAP_MESSAGE_TYPE, content: "", display: true, details })
 		}
 	})
 }

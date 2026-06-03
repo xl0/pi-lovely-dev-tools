@@ -29,9 +29,9 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 
 Flat args are assigned to top-level schema properties in schema order by a schema-only parser; shell-style quotes preserve spaces and empty strings. Example: `/tool read file.txt 10 20`.
 
-Custom message type: `lovely-dev-tools.run-tool` with `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, `timestamp`, and optional `imageFallbacks`.
+Custom message type: `lovely-dev-tools.run-tool` with empty `content` and `details` containing `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, `timestamp`, and optional `imageFallbacks`.
 
-The `context` hook filters these custom messages out of LLM context while keeping them visible in the TUI/session.
+The empty `content` avoids accidental context pollution if the extension is later unloaded. The `context` hook filters these custom messages out of LLM context while keeping them visible in the TUI/session.
 
 ## Argument editor
 
@@ -68,7 +68,7 @@ While running, a focused custom component shows the pending call, Esc abort hint
 
 ### `/show-context`
 
-`/show-context` waits for idle, computes a snapshot from Pi's structured system prompt options plus `buildSessionContext()` messages, and emits one displayed custom message hidden from LLM context. It renders a Context Read Map: one row per file, with context files first, advertised skills second, and other read files by most recent evidence. Internally paths are normalized absolute; display paths are relative inside `cwd` and absolute outside it.
+`/show-context` waits for idle, computes a snapshot from Pi's structured system prompt options plus `buildSessionContext()` messages, and emits one displayed custom message hidden from LLM context. The message `content` is empty; render data lives in `details` to avoid accidental context pollution if the extension is later unloaded. It renders a Context Read Map: one row per file, with context files first, advertised skills second, and other read files by most recent evidence. Internally paths are normalized absolute; display paths are relative inside `cwd` and absolute outside it.
 
 Evidence kinds are startup context file ranges, advertised skill frontmatter metadata, `/skill:name` loaded skill body ranges, and successful `read` tool results matched by `toolCallId`. Media-producing `read` results are treated as whole-file reads and rendered as a one-cell file. Compacted-away reads naturally disappear because collection uses the built model context, not raw branch history. File line counts are queried at command execution; missing files remain visible using evidence range length and a warning marker. Skill body detection uses Pi's `parseSkillBlock()` on user messages only, so assistant/tool quoted skill XML is ignored.
 
@@ -85,4 +85,4 @@ Rendering uses 10 lines per cell with half-cell braille resolution (left column 
 - rendered system prompt from `ctx.getSystemPrompt()`
 - active tool schemas from `pi.getAllTools()` filtered by `pi.getActiveTools()`
 
-Both messages use collapsible custom renderers, are filtered out of LLM context, and are skipped in session tree preparation. Tool schema formatting shows each active tool, its top-level parameters, required/optional status, inferred schema type, and parameter description when present.
+Both messages have empty `content`, store display text in `details`, use collapsible custom renderers, are filtered out of LLM context, and are skipped in session tree preparation. Tool schema formatting shows each active tool, its top-level parameters, required/optional status, inferred schema type, and parameter description when present.
