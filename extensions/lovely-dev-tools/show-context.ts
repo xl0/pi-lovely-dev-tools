@@ -360,7 +360,7 @@ function fileUrl(path: string, startLine?: number, endLine?: number) {
 function renderSnapshot(details: ContextReadMapDetails, width: number, theme: Theme) {
 	if (details.files.length === 0) return "No file-backed context evidence."
 	const maxOrdinal = Math.max(0, ...details.files.flatMap(file => file.sources.map(source => source.ordinal)))
-	const wide = width >= 150
+	const wide = width >= 100
 	const pathWidth = 50
 	const lines = [
 		`${theme.fg("accent", theme.bold("Context read map"))} ${`One cell = ${details.linesPerCell} lines · ${details.files.length} files total`}`,
@@ -369,18 +369,21 @@ function renderSnapshot(details: ContextReadMapDetails, width: number, theme: Th
 		""
 	]
 	for (const file of details.files) {
-		const displayName = truncatePath(file.displayPath, pathWidth)
-		const padding = " ".repeat(Math.max(0, pathWidth - displayName.length))
-		const linkedName = `${padding}${osc8(displayName, fileUrl(file.path))}`
-		const name = file.missing ? theme.fg("warning", linkedName) : linkedName
 		const cells = renderBarCells(file, maxOrdinal, theme)
 		if (wide) {
+			const displayName = truncatePath(file.displayPath, pathWidth)
+			const padding = " ".repeat(Math.max(0, pathWidth - displayName.length))
+			const linkedName = `${padding}${osc8(displayName, fileUrl(file.path))}`
+			const name = file.missing ? theme.fg("warning", linkedName) : linkedName
 			const wrapped = wrapBar(cells, Math.max(10, width - pathWidth - 3))
 			lines.push(`${name} ${wrapped[0]}`)
 			for (const chunk of wrapped.slice(1)) lines.push(`${"".padEnd(pathWidth)} ${chunk}`)
 		} else {
+			const displayName = truncatePath(file.displayPath, Math.max(10, width - 2))
+			const linkedName = osc8(displayName, fileUrl(file.path))
+			const name = file.missing ? theme.fg("warning", linkedName) : linkedName
 			lines.push(name)
-			for (const chunk of wrapBar(cells, Math.max(10, width - 2))) lines.push(`  ${chunk}`)
+			for (const chunk of wrapBar(cells, Math.max(10, width - 2))) lines.push(chunk)
 		}
 	}
 	return lines.join("\n")
