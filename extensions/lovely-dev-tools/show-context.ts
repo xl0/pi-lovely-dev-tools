@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { isAbsolute, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent"
-import { buildSessionContext, type SessionEntry } from "@earendil-works/pi-coding-agent"
+import { buildSessionContext, parseSkillBlock, type SessionEntry } from "@earendil-works/pi-coding-agent"
 import { Box, Text } from "@earendil-works/pi-tui"
 import { CONTEXT_READ_MAP_MESSAGE_TYPE } from "./messages"
 import { isRecord } from "./schema"
@@ -61,8 +61,9 @@ function displayPath(cwd: string, path: string) {
 }
 
 function countLines(text: string) {
-	if (text.length === 0) return 0
-	return text.split("\n").length
+	const trimmed = text.replace(/\n+$/, "")
+	if (trimmed.length === 0) return 0
+	return trimmed.split("\n").length
 }
 
 function currentLineCount(path: string, fallback: number) {
@@ -163,6 +164,7 @@ function readCallFromBlock(block: unknown): ReadCall | undefined {
 function collectContextReadMap(ctx: ExtensionCommandContext): ContextReadMapDetails {
 	const cwd = ctx.cwd
 	const files = new Map<string, FileEvidence>()
+	// ordinal = evidence recency; order = first-seen file order for stable groups.
 	let ordinal = 0
 	let order = 0
 	const systemPromptOptions = ctx.getSystemPromptOptions()
@@ -215,7 +217,7 @@ function collectContextReadMap(ctx: ExtensionCommandContext): ContextReadMapDeta
 					files,
 					cwd,
 					call.path,
-					{ kind: "tool-read", range: { startLine: 1, endLine: 1 }, ordinal: ordinal++, media: true },
+					{ kind: "tool-read", range: { startLine: 1, endLine: 10 }, ordinal: ordinal++, media: true },
 					order++,
 					1
 				)
@@ -235,12 +237,16 @@ function collectContextReadMap(ctx: ExtensionCommandContext): ContextReadMapDeta
 			}
 		}
 
-		const text = messageText(message).trimStart()
-		if (text.startsWith("<skill ")) {
-			for (const match of text.matchAll(/<skill\s+name="[^"]+"\s+location="([^"]+)"\s*>/g)) {
-				const path = match[1]
-				if (!path || path.includes("${")) continue
-				addEvidence(files, cwd, path, { kind: "loaded-skill-body", range: bodyRange(path), ordinal: ordinal++ }, order++)
+		if (contextMessage.role === "user") {
+			const skillBlock = parseSkillBlock(messageText(message))
+			if (skillBlock && !skillBlock.location.includes("${")) {
+				addEvidence(
+					files,
+					cwd,
+					skillBlock.location,
+					{ kind: "loaded-skill-body", range: bodyRange(skillBlock.location), ordinal: ordinal++ },
+					order++
+				)
 			}
 		}
 	}
@@ -328,11 +334,11 @@ function wrapBar(cells: string[], width: number) {
 function truncatePath(path: string, width: number) {
 	if (path.length <= width) return path
 	if (width <= 5) return path.slice(0, width)
-	const marker = " …/… "
+	const marker = "…/…"
 	const available = width - marker.length
 	const head = Math.ceil(available / 2)
-	const tail = Math.floor(available / 2)
-	return `${path.slice(0, head)}${marker}${path.slice(-tail)}`
+	const tail = available - head
+	return `${path.slice(0, head)}${marker}${path.slice(path.length - tail)}`
 }
 
 function osc8(text: string, url: string) {
