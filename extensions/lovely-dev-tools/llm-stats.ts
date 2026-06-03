@@ -5,7 +5,7 @@ import { isRecord } from "./schema"
 
 type LlmStatsRow = {
 	index: number
-	time: string
+	id: string
 	model: string
 	start: string
 	fresh: number
@@ -28,12 +28,6 @@ function shortNumber(value: number): string {
 	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}m`
 	if (value >= 1000) return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}k`
 	return `${value}`
-}
-
-function timeString(timestamp: unknown): string {
-	const date = typeof timestamp === "string" || typeof timestamp === "number" ? new Date(timestamp) : new Date()
-	if (Number.isNaN(date.getTime())) return "--:--:--"
-	return date.toTimeString().slice(0, 8)
 }
 
 function toolNames(content: unknown): string {
@@ -63,7 +57,7 @@ function formatRows(rows: LlmStatsRow[]): string {
 	if (rows.length === 0) return "No assistant messages with usage."
 	const widths = {
 		index: Math.max(1, `${rows.length}`.length),
-		time: 8,
+		id: Math.max("id".length, ...rows.map(row => row.id.length)),
 		model: Math.max("model".length, ...rows.map(row => row.model.length)),
 		start: Math.max("start".length, ...rows.map(row => row.start.length)),
 		fresh: Math.max("fresh".length, ...rows.map(row => shortNumber(row.fresh).length)),
@@ -74,7 +68,7 @@ function formatRows(rows: LlmStatsRow[]): string {
 	}
 	const header = [
 		pad("#", widths.index, true),
-		pad("time", widths.time),
+		pad("id", widths.id),
 		pad("model", widths.model),
 		pad("start", widths.start),
 		pad("fresh", widths.fresh, true),
@@ -89,7 +83,7 @@ function formatRows(rows: LlmStatsRow[]): string {
 	const body = rows.map(row =>
 		[
 			pad(`${row.index}`, widths.index, true),
-			pad(row.time, widths.time),
+			pad(row.id, widths.id),
 			pad(row.model, widths.model),
 			pad(row.start, widths.start),
 			pad(shortNumber(row.fresh), widths.fresh, true),
@@ -138,7 +132,7 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 				const output = numberValue(usage.output)
 				rows.push({
 					index: index++,
-					time: timeString(entry.timestamp),
+					id: entry.id,
 					model: `${typeof message.provider === "string" ? message.provider : "?"}/${typeof message.model === "string" ? message.model : "?"}`,
 					start: callInitiator(previousMessages),
 					fresh,
