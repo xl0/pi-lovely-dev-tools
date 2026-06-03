@@ -76,7 +76,7 @@ Rendering uses 10 lines per cell with half-cell braille resolution (left column 
 
 ### `/llm-stats`
 
-`/llm-stats` waits for idle, scans `ctx.sessionManager.getBranch()` for finalized assistant message entries with `usage`, and emits one displayed custom message hidden from LLM context. Each row represents one assistant/LLM call, not one tool call. Prompt-side tokens render as `fresh + cacheR = input`, or `fresh + cacheR + cacheW = input` when cache writes are present. `fresh` is `usage.input`, `cacheR` is `usage.cacheRead`, and `cacheW` is `usage.cacheWrite`. Rows also show session entry id, `provider/model`, inferred start (`user`, `tools`, or `other`), output tokens, stop reason, and comma-separated tool calls or `-`.
+`/llm-stats` waits for idle, scans `ctx.sessionManager.getBranch()` for finalized assistant message entries with `usage`, and emits one displayed custom message hidden from LLM context. Each row represents one assistant/LLM call, not one tool call. Prompt-side tokens render as `fresh + cacheR = input`, or `fresh + cacheR + cacheW = input` when cache writes are present. `fresh` is `usage.input`, `cacheR` is `usage.cacheRead`, and `cacheW` is `usage.cacheWrite`. Rows also show elapsed time since the previous assistant/agent message as `+Ns` (or the entry timestamp as `hh:mm:ss` when no previous assistant exists), `provider/model`, inferred start (`user`, `tools`, or `other`), output tokens, stop reason, and comma-separated tool calls or `-`.
 
 ### `/show-sysprompt`
 
