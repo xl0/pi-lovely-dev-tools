@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent"
 import { buildSessionContext, parseSkillBlock, type SessionEntry } from "@earendil-works/pi-coding-agent"
-import { Box, Text } from "@earendil-works/pi-tui"
+import { Box, Text, type Component } from "@earendil-works/pi-tui"
 import { CONTEXT_READ_MAP_MESSAGE_TYPE } from "./messages"
 import { isRecord } from "./schema"
 
@@ -389,6 +389,19 @@ function renderSnapshot(details: ContextReadMapDetails, width: number, theme: Th
 	return lines.join("\n")
 }
 
+class ContextReadMapView implements Component {
+	constructor(
+		private details: ContextReadMapDetails,
+		private theme: Theme
+	) {}
+
+	render(width: number) {
+		return renderSnapshot(this.details, width, this.theme).split("\n")
+	}
+
+	invalidate() {}
+}
+
 function isContextReadMapDetails(value: unknown): value is ContextReadMapDetails {
 	if (!isRecord(value)) return false
 	const details = value as { files?: unknown; cwd?: unknown; createdAt?: unknown }
@@ -398,14 +411,12 @@ function isContextReadMapDetails(value: unknown): value is ContextReadMapDetails
 export function registerShowContextCommand(pi: ExtensionAPI) {
 	pi.registerMessageRenderer<ContextReadMapDetails>(CONTEXT_READ_MAP_MESSAGE_TYPE, (message, _options, theme) => {
 		const details = isContextReadMapDetails(message.details) ? message.details : undefined
-		const width = process.stdout.columns || 120
-		const text = details
-			? renderSnapshot(details, width, theme)
-			: typeof message.content === "string"
-				? message.content
-				: "Invalid context read map."
 		const box = new Box(1, 1)
-		box.addChild(new Text(text, 0, 0))
+		if (details) {
+			box.addChild(new ContextReadMapView(details, theme))
+		} else {
+			box.addChild(new Text(typeof message.content === "string" ? message.content : "Invalid context read map.", 0, 0))
+		}
 		return box
 	})
 
