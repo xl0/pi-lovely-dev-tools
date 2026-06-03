@@ -5,11 +5,13 @@ export const RUN_TOOL_MESSAGE_TYPE = "lovely-dev-tools.run-tool"
 export const SYSTEM_PROMPT_MESSAGE_TYPE = "lovely-dev-tools.system-prompt"
 export const TOOL_SCHEMAS_MESSAGE_TYPE = "lovely-dev-tools.tool-schemas"
 export const CONTEXT_READ_MAP_MESSAGE_TYPE = "lovely-dev-tools.context-read-map"
+export const LLM_STATS_MESSAGE_TYPE = "lovely-dev-tools.llm-stats"
 export const HIDDEN_MESSAGE_TYPES = new Set([
 	RUN_TOOL_MESSAGE_TYPE,
 	SYSTEM_PROMPT_MESSAGE_TYPE,
 	TOOL_SCHEMAS_MESSAGE_TYPE,
-	CONTEXT_READ_MAP_MESSAGE_TYPE
+	CONTEXT_READ_MAP_MESSAGE_TYPE,
+	LLM_STATS_MESSAGE_TYPE
 ])
 
 export type ImageFallback = {
