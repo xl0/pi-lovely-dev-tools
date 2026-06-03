@@ -283,6 +283,10 @@ function colorCell(text: string, kind: EvidenceKind, ordinal: number, maxOrdinal
 	return theme.fg("dim", text)
 }
 
+function barCell(text: string, theme: Theme) {
+	return theme.bg("selectedBg", text)
+}
+
 function readCountGlyph(leftCount: number, rightCount: number) {
 	if (leftCount === 0 && rightCount === 0) return EMPTY_GLYPH
 	const leftDots = LEFT_DOTS_BY_COUNT[Math.min(leftCount, LEFT_DOTS_BY_COUNT.length - 1)] ?? 0
@@ -299,7 +303,7 @@ function renderBarCells(file: FileEvidence, maxOrdinal: number, theme: Theme) {
 		const end = Math.min(file.totalLines, start + LINES_PER_CELL - 1)
 		const overlapping = file.sources.filter(source => source.range.startLine <= end && source.range.endLine >= start)
 		if (overlapping.length === 0) {
-			cells.push(theme.fg("dim", EMPTY_GLYPH))
+			cells.push(barCell(theme.fg("dim", EMPTY_GLYPH), theme))
 			continue
 		}
 		const mediaCount = overlapping.filter(source => source.media).length
@@ -313,7 +317,7 @@ function renderBarCells(file: FileEvidence, maxOrdinal: number, theme: Theme) {
 			if (priorityDiff !== 0) return priorityDiff > 0 ? source : best
 			return source.ordinal > best.ordinal ? source : best
 		})
-		cells.push(osc8(colorCell(glyph, strongest.kind, strongest.ordinal, maxOrdinal, theme), fileUrl(file.path, start)))
+		cells.push(osc8(barCell(colorCell(glyph, strongest.kind, strongest.ordinal, maxOrdinal, theme), theme), fileUrl(file.path, start)))
 	}
 	return cells
 }
@@ -397,7 +401,7 @@ export function registerShowContextCommand(pi: ExtensionAPI) {
 			: typeof message.content === "string"
 				? message.content
 				: "Invalid context read map."
-		const box = new Box(1, 1, value => theme.bg("customMessageBg", value))
+		const box = new Box(1, 1)
 		box.addChild(new Text(text, 0, 0))
 		return box
 	})

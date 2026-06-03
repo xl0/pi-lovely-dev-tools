@@ -17,6 +17,7 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 - `extensions/lovely-dev-tools/show-context.ts`: `/show-context` Context Read Map snapshot collection and renderer.
 - `assets/demo.mp4`: source demo video kept in repo, not shipped in npm package.
 - `assets/demo.gif`: npm/GitHub-compatible README demo preview kept in repo, not shipped in npm package.
+- `assets/show-context.png`: README screenshot for `/show-context`, not shipped in npm package.
 - `tsconfig.json`, `biome.json`: strict TypeScript and Biome config.
 
 ## `lovely-dev-tools`
@@ -70,7 +71,7 @@ While running, a focused custom component shows the pending call, Esc abort hint
 
 Evidence kinds are startup context file ranges, advertised skill frontmatter metadata, `/skill:name` loaded skill body ranges, and successful `read` tool results matched by `toolCallId`. Media-producing `read` results are treated as whole-file reads and rendered as a one-cell file. Compacted-away reads naturally disappear because collection uses the built model context, not raw branch history. File line counts are queried at command execution; missing files remain visible using evidence range length and a warning marker. Skill body detection uses Pi's `parseSkillBlock()` on user messages only, so assistant/tool quoted skill XML is ignored.
 
-Rendering uses 10 lines per cell with half-cell braille resolution (left column for lines 1-5, right column for 6-10), no cell cap, count glyphs (`ˍ` unread, then bottom-up rows up to `⣿` for 4+ reads per half), and media read cells fill both braille columns because lines do not apply. Startup context and advertised skills use `borderAccent`, injected skill bodies use `accent`, and read-tool evidence uses recency coloring. Wide terminals use a fixed 50-column middle-truncated filename column with aligned bars; filenames carry OSC8 `file://` links to full absolute paths on the visible path text only, and non-empty bar cells carry OSC8 links to the first line represented by that cell. Narrow terminals put bars under filenames.
+Rendering uses 10 lines per cell with half-cell braille resolution (left column for lines 1-5, right column for 6-10), no cell cap, count glyphs (`ˍ` unread, then bottom-up rows up to `⣿` for 4+ reads per half), and media read cells fill both braille columns because lines do not apply. The renderer uses default terminal background overall; only bar cells use `selectedBg` as a track background. Startup context and advertised skills use `borderAccent`, injected skill bodies use `accent`, and read-tool evidence uses recency coloring. Wide terminals use a fixed 50-column middle-truncated filename column with aligned bars; filenames carry OSC8 `file://` links to full absolute paths on the visible path text only, and non-empty bar cells carry OSC8 links to the first line represented by that cell. Narrow terminals put bars under filenames.
 
 ### `/show-sysprompt`
 
