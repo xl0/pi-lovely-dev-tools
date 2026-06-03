@@ -46,7 +46,7 @@ Show a file coverage map for the current model context. The map includes startup
 
 ### `/llm-stats`
 
-Show one row per completed assistant/LLM call in the current branch, with initiation source and prompt-side tokens rendered as `fresh + cacheR = input`. The message is visible in chat and hidden from LLM context.
+Show one row per completed assistant/LLM call in the current branch, with initiation source and prompt-side tokens rendered as `fresh + cacheR = input` or `fresh + cacheR + cacheW = input` when cache writes are present. The message is visible in chat and hidden from LLM context.
 
 ![Context read map](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/llm-stats.png)
 
