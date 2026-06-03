@@ -5,7 +5,7 @@ import { isRecord } from "./schema"
 
 type LlmStatsRow = {
 	index: number
-	id: string
+	delta: string
 	model: string
 	start: string
 	fresh: number
@@ -29,6 +29,22 @@ function shortNumber(value: number): string {
 	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}m`
 	if (value >= 1000) return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}k`
 	return `${value}`
+}
+
+function timestampValue(value: unknown): number | undefined {
+	if (typeof value !== "string") return undefined
+	const timestamp = Date.parse(value)
+	return Number.isFinite(timestamp) ? timestamp : undefined
+}
+
+function timestampText(value: number | undefined): string {
+	if (value === undefined) return "-"
+	return new Date(value).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
+}
+
+function deltaText(current: number | undefined, previous: number | undefined): string {
+	if (current === undefined || previous === undefined) return timestampText(current)
+	return `+${Math.max(0, Math.round((current - previous) / 1000))}s`
 }
 
 function toolNames(content: unknown): string {
@@ -59,7 +75,7 @@ function formatRows(rows: LlmStatsRow[]): string {
 	const showCacheWrite = rows.some(row => row.cacheWrite !== 0)
 	const widths = {
 		index: Math.max(1, `${rows.length}`.length),
-		id: Math.max("id".length, ...rows.map(row => row.id.length)),
+		delta: Math.max("delta".length, ...rows.map(row => row.delta.length)),
 		model: Math.max("model".length, ...rows.map(row => row.model.length)),
 		start: Math.max("start".length, ...rows.map(row => row.start.length)),
 		fresh: Math.max("fresh".length, ...rows.map(row => shortNumber(row.fresh).length)),
@@ -71,7 +87,7 @@ function formatRows(rows: LlmStatsRow[]): string {
 	}
 	const header = [
 		pad("#", widths.index, true),
-		pad("id", widths.id),
+		pad("delta", widths.delta, true),
 		pad("model", widths.model),
 		pad("start", widths.start),
 		pad("fresh", widths.fresh, true),
@@ -87,7 +103,7 @@ function formatRows(rows: LlmStatsRow[]): string {
 	const body = rows.map(row =>
 		[
 			pad(`${row.index}`, widths.index, true),
-			pad(row.id, widths.id),
+			pad(row.delta, widths.delta, true),
 			pad(row.model, widths.model),
 			pad(row.start, widths.start),
 			pad(shortNumber(row.fresh), widths.fresh, true),
@@ -120,13 +136,17 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 		async handler(_args, ctx) {
 			await ctx.waitForIdle()
 			let index = 1
+			let lastAgentTimestamp: number | undefined
 			const rows: LlmStatsRow[] = []
 			const previousMessages: unknown[] = []
 			for (const entry of ctx.sessionManager.getBranch()) {
 				if (entry.type !== "message") continue
 				const message = entry.message
 				if (!isRecord(message)) continue
-				if (message.role !== "assistant" || !isRecord(message.usage)) {
+				const isAssistant = message.role === "assistant"
+				const agentTimestamp = isAssistant ? timestampValue(entry.timestamp) : undefined
+				if (!isAssistant || !isRecord(message.usage)) {
+					if (isAssistant) lastAgentTimestamp = agentTimestamp
 					previousMessages.push(message)
 					continue
 				}
@@ -138,7 +158,7 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 				const output = numberValue(usage.output)
 				rows.push({
 					index: index++,
-					id: entry.id,
+					delta: deltaText(agentTimestamp, lastAgentTimestamp),
 					model: `${typeof message.provider === "string" ? message.provider : "?"}/${typeof message.model === "string" ? message.model : "?"}`,
 					start: callInitiator(previousMessages),
 					fresh,
@@ -149,6 +169,7 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 					stop: typeof message.stopReason === "string" ? message.stopReason : "-",
 					tools: toolNames(message.content)
 				})
+				lastAgentTimestamp = agentTimestamp
 				previousMessages.push(message)
 			}
 			pi.sendMessage({ customType: LLM_STATS_MESSAGE_TYPE, content: "", display: true, details: { rows } satisfies LlmStatsDetails })
