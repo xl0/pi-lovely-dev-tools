@@ -7,12 +7,12 @@ type LlmStatsRow = {
 	index: number
 	time: string
 	model: string
-	stop: string
-	from: string
+	start: string
 	fresh: number
 	cacheRead: number
 	input: number
 	output: number
+	stop: string
 	tools: string
 }
 
@@ -65,9 +65,9 @@ function formatRows(rows: LlmStatsRow[]): string {
 		index: Math.max(1, `${rows.length}`.length),
 		time: 8,
 		model: Math.max("model".length, ...rows.map(row => row.model.length)),
-		stop: Math.max("stop".length, ...rows.map(row => row.stop.length)),
-		from: Math.max("from".length, ...rows.map(row => row.from.length)),
+		start: Math.max("start".length, ...rows.map(row => row.start.length)),
 		fresh: Math.max("fresh".length, ...rows.map(row => shortNumber(row.fresh).length)),
+		stop: Math.max("stop".length, ...rows.map(row => row.stop.length)),
 		cacheRead: Math.max("cacheR".length, ...rows.map(row => shortNumber(row.cacheRead).length)),
 		input: Math.max("input".length, ...rows.map(row => shortNumber(row.input).length)),
 		output: Math.max("output".length, ...rows.map(row => shortNumber(row.output).length))
@@ -76,14 +76,14 @@ function formatRows(rows: LlmStatsRow[]): string {
 		pad("#", widths.index, true),
 		pad("time", widths.time),
 		pad("model", widths.model),
-		pad("stop", widths.stop),
-		pad("from", widths.from),
+		pad("start", widths.start),
 		pad("fresh", widths.fresh, true),
 		"+",
 		pad("cacheR", widths.cacheRead, true),
 		"=",
 		pad("input", widths.input, true),
 		pad("output", widths.output, true),
+		pad("stop", widths.stop),
 		"tools"
 	].join("  ")
 	const body = rows.map(row =>
@@ -91,14 +91,14 @@ function formatRows(rows: LlmStatsRow[]): string {
 			pad(`${row.index}`, widths.index, true),
 			pad(row.time, widths.time),
 			pad(row.model, widths.model),
-			pad(row.stop, widths.stop),
-			pad(row.from, widths.from),
+			pad(row.start, widths.start),
 			pad(shortNumber(row.fresh), widths.fresh, true),
 			"+",
 			pad(shortNumber(row.cacheRead), widths.cacheRead, true),
 			"=",
 			pad(shortNumber(row.input), widths.input, true),
 			pad(shortNumber(row.output), widths.output, true),
+			pad(row.stop, widths.stop),
 			row.tools
 		].join("  ")
 	)
@@ -140,12 +140,12 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 					index: index++,
 					time: timeString(entry.timestamp),
 					model: `${typeof message.provider === "string" ? message.provider : "?"}/${typeof message.model === "string" ? message.model : "?"}`,
-					stop: typeof message.stopReason === "string" ? message.stopReason : "-",
-					from: callInitiator(previousMessages),
+					start: callInitiator(previousMessages),
 					fresh,
 					cacheRead,
 					input,
 					output,
+					stop: typeof message.stopReason === "string" ? message.stopReason : "-",
 					tools: toolNames(message.content)
 				})
 				previousMessages.push(message)
