@@ -74,7 +74,7 @@ export async function createToolBackend(ctx: ExtensionCommandContext, activeTool
 	})
 	await created.session.bindExtensions({ uiContext: mutedUi })
 	created.session.setActiveToolsByName(activeTools)
-	created.session.extensionRunner.setUIContext(ctx.ui)
+	created.session.extensionRunner.setUIContext(ctx.ui, ctx.mode)
 	const diagnostics = [...services.diagnostics]
 	const abort = new AbortController()
 	return {
