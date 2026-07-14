@@ -28,6 +28,10 @@ _Avoid_: session history, context state, full transcript
 A visual file coverage view derived from file-backed evidence present in the **Effective LLM Context**, including tool reads and startup context files.
 _Avoid_: read history, file explorer, coverage report
 
+**Context Token Breakdown**:
+A visual estimated-token decomposition of the prompt prefix and messages in the **Effective LLM Context**.
+_Avoid_: billing usage, exact tokenizer output
+
 **Startup Context File**:
 A file loaded into the system prompt before the model runs, such as an `AGENTS.md` discovered for the session.
 _Avoid_: sysprompt file, project rule file
@@ -94,6 +98,11 @@ _Avoid_: second TUI, nested terminal
 - A **Context Read Map** maps an **Advertised Skill** to its **Skill Metadata Lines** and colors them like other system-prompt file content.
 - A **Context Read Map** maps a **Loaded Skill Body** to the body lines of its skill file, excluding frontmatter.
 - A **Context Read Map** summarizes file reads that are still visible in the **Effective LLM Context**; compacted-away reads are not shown unless represented by current context messages.
+- A **Context Token Breakdown** separates system-prompt base text, startup context, advertised skills, active tool definitions, user text, loaded skill bodies, assistant text/thinking, tool calls/results, compaction and branch summaries, user shell runs, custom messages, and media.
+- A **Context Token Breakdown** reports tool-call and tool-result totals both cumulatively and in uncolored child rows split by tool name.
+- A **Context Token Breakdown** uses Pi's conservative character heuristic (four characters per token and 1,200 tokens per image); it is not provider tokenizer or billing output.
+- A **Context Token Breakdown** shows Pi's context meter separately when available, because reported usage and the decomposed estimate need not reconcile exactly.
+- A **Context Token Breakdown** ignores context-hook mutations from other extensions and provider-payload rewrites.
 
 ## Example dialogue
 
