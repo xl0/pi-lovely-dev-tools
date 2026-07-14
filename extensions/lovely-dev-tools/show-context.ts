@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from "node:fs"
 import { isAbsolute, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent"
-import { buildSessionContext, parseSkillBlock, type SessionEntry } from "@earendil-works/pi-coding-agent"
-import { Box, type Component, Text } from "@earendil-works/pi-tui"
-import { CONTEXT_READ_MAP_MESSAGE_TYPE } from "./messages"
+import { buildSessionContext, convertToLlm, parseSkillBlock, type SessionEntry } from "@earendil-works/pi-coding-agent"
+import { Box, type Component, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui"
+import { CONTEXT_READ_MAP_MESSAGE_TYPE, HIDDEN_MESSAGE_TYPES } from "./messages"
 import { isRecord } from "./schema"
 
 type EvidenceKind = "startup-context" | "advertised-skill" | "loaded-skill-body" | "tool-read"
@@ -30,10 +30,53 @@ type FileEvidence = {
 	order: number
 }
 
+type TokenSection = "prefix" | "messages"
+
+type TokenRowId =
+	| "system-base"
+	| "startup-context"
+	| "advertised-skills"
+	| "tool-definitions"
+	| "user-messages"
+	| "loaded-skills"
+	| "assistant-text"
+	| "assistant-thinking"
+	| "tool-calls"
+	| "tool-results"
+	| "compactions"
+	| "branch-summaries"
+	| "bash-executions"
+	| "custom-messages"
+	| "media"
+
+type TokenBreakdownRow = {
+	id: TokenRowId
+	section: TokenSection
+	label: string
+	tokens: number
+	count: number
+	unit: string
+	tools?: ToolTokenBreakdown[]
+}
+
+type ToolTokenBreakdown = {
+	toolName: string
+	tokens: number
+	count: number
+}
+
+type ContextTokenBreakdown = {
+	estimatedTokens: number
+	contextWindow: number | null
+	piTokens: number | null
+	rows: TokenBreakdownRow[]
+}
+
 type ContextReadMapDetails = {
 	cwd: string
 	createdAt: number
 	linesPerCell: number
+	tokens?: ContextTokenBreakdown
 	files: FileEvidence[]
 }
 
@@ -44,6 +87,8 @@ type ReadCall = {
 }
 
 const LINES_PER_CELL = 10
+const CHARS_PER_TOKEN = 4
+const ESTIMATED_IMAGE_CHARS = 4800
 const EMPTY_GLYPH = " "
 const BRAILLE_BASE = 0x2800
 const LEFT_DOTS_BY_COUNT = [0, 64, 68, 70, 71] as const
@@ -64,6 +109,223 @@ function countLines(text: string) {
 	const trimmed = text.replace(/\n+$/, "")
 	if (trimmed.length === 0) return 0
 	return trimmed.split("\n").length
+}
+
+function safeJsonStringify(value: unknown) {
+	try {
+		return JSON.stringify(value) ?? "undefined"
+	} catch {
+		return "[unserializable]"
+	}
+}
+
+function escapeXml(text: string) {
+	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;")
+}
+
+function contextFilesPromptSection(contextFiles: Array<{ path: string; content: string }>) {
+	if (contextFiles.length === 0) return ""
+	let section = "\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n"
+	for (const contextFile of contextFiles) {
+		section += `<project_instructions path="${contextFile.path}">\n${contextFile.content}\n</project_instructions>\n\n`
+	}
+	return `${section}</project_context>\n`
+}
+
+function skillsPromptSection(skills: Array<{ name: string; description: string; filePath: string; disableModelInvocation: boolean }>) {
+	const visible = skills.filter(skill => !skill.disableModelInvocation)
+	if (visible.length === 0) return ""
+	const lines = [
+		"\n\nThe following skills provide specialized instructions for specific tasks.",
+		"Use the read tool to load a skill's file when the task matches its description.",
+		"When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.",
+		"",
+		"<available_skills>"
+	]
+	for (const skill of visible) {
+		lines.push(
+			"  <skill>",
+			`    <name>${escapeXml(skill.name)}</name>`,
+			`    <description>${escapeXml(skill.description)}</description>`,
+			`    <location>${escapeXml(skill.filePath)}</location>`,
+			"  </skill>"
+		)
+	}
+	lines.push("</available_skills>")
+	return lines.join("\n")
+}
+
+function contentSize(content: unknown) {
+	if (typeof content === "string") return { textChars: content.length, images: 0 }
+	if (!Array.isArray(content)) return { textChars: 0, images: 0 }
+	let textChars = 0
+	let images = 0
+	for (const block of content) {
+		if (!isRecord(block)) continue
+		const contentBlock = block as { type?: unknown; text?: unknown }
+		if (contentBlock.type === "text" && typeof contentBlock.text === "string") textChars += contentBlock.text.length
+		if (contentBlock.type === "image") images++
+	}
+	return { textChars, images }
+}
+
+function convertedMessageTextChars(message: unknown) {
+	const converted = convertToLlm([message] as Parameters<typeof convertToLlm>[0])
+	return converted.reduce((sum, item) => sum + contentSize(item.content).textChars, 0)
+}
+
+function addToolTotal(totals: Map<string, { chars: number; count: number }>, toolName: string, chars: number) {
+	const total = totals.get(toolName) ?? { chars: 0, count: 0 }
+	total.chars += Math.max(0, chars)
+	total.count++
+	totals.set(toolName, total)
+}
+
+function splitToolTotals(totals: Map<string, { chars: number; count: number }>, categoryTokens: number): ToolTokenBreakdown[] {
+	const entries = [...totals.entries()].sort((a, b) => b[1].chars - a[1].chars || a[0].localeCompare(b[0]))
+	const totalChars = entries.reduce((sum, [, total]) => sum + total.chars, 0)
+	let cumulativeChars = 0
+	let allocatedTokens = 0
+	return entries.map(([toolName, total], index) => {
+		cumulativeChars += total.chars
+		const boundary =
+			totalChars === 0 ? 0 : index === entries.length - 1 ? categoryTokens : Math.round((cumulativeChars / totalChars) * categoryTokens)
+		const tokens = Math.max(0, boundary - allocatedTokens)
+		allocatedTokens = boundary
+		return { toolName, tokens, count: total.count }
+	})
+}
+
+function collectTokenBreakdown(pi: ExtensionAPI, ctx: ExtensionCommandContext): ContextTokenBreakdown {
+	const definitions: Array<{ id: TokenRowId; section: TokenSection; label: string; unit: string }> = [
+		{ id: "system-base", section: "prefix", label: "System prompt · base", unit: "section" },
+		{ id: "startup-context", section: "prefix", label: "Startup context files", unit: "file" },
+		{ id: "advertised-skills", section: "prefix", label: "Advertised skills", unit: "skill" },
+		{ id: "tool-definitions", section: "prefix", label: "Tool definitions", unit: "tool" },
+		{ id: "user-messages", section: "messages", label: "User messages", unit: "message" },
+		{ id: "loaded-skills", section: "messages", label: "Loaded skill bodies", unit: "skill" },
+		{ id: "assistant-text", section: "messages", label: "Assistant text", unit: "block" },
+		{ id: "assistant-thinking", section: "messages", label: "Assistant thinking", unit: "block" },
+		{ id: "tool-calls", section: "messages", label: "Tool calls", unit: "call" },
+		{ id: "tool-results", section: "messages", label: "Tool results", unit: "result" },
+		{ id: "compactions", section: "messages", label: "Compactions", unit: "summary" },
+		{ id: "branch-summaries", section: "messages", label: "Branch summaries", unit: "summary" },
+		{ id: "bash-executions", section: "messages", label: "User shell runs", unit: "run" },
+		{ id: "custom-messages", section: "messages", label: "Custom messages", unit: "message" },
+		{ id: "media", section: "messages", label: "Images / media", unit: "image" }
+	]
+	const totals = new Map<TokenRowId, { chars: number; count: number }>()
+	const toolCallTotals = new Map<string, { chars: number; count: number }>()
+	const toolResultTotals = new Map<string, { chars: number; count: number }>()
+	for (const definition of definitions) totals.set(definition.id, { chars: 0, count: 0 })
+	const add = (id: TokenRowId, chars: number, count = 0) => {
+		const total = totals.get(id)
+		if (!total) return
+		total.chars += Math.max(0, chars)
+		total.count += count
+	}
+
+	const options = ctx.getSystemPromptOptions()
+	const systemPrompt = ctx.getSystemPrompt()
+	const contextSection = contextFilesPromptSection(options.contextFiles ?? [])
+	const skillsSection = skillsPromptSection(options.skills ?? [])
+	let baseSystemChars = systemPrompt.length
+	if (contextSection && systemPrompt.includes(contextSection)) {
+		baseSystemChars -= contextSection.length
+		add("startup-context", contextSection.length, options.contextFiles?.length ?? 0)
+	}
+	if (skillsSection && systemPrompt.includes(skillsSection)) {
+		baseSystemChars -= skillsSection.length
+		add("advertised-skills", skillsSection.length, (options.skills ?? []).filter(skill => !skill.disableModelInvocation).length)
+	}
+	add("system-base", baseSystemChars, baseSystemChars > 0 ? 1 : 0)
+
+	const activeTools = new Set(pi.getActiveTools())
+	const tools = pi
+		.getAllTools()
+		.filter(tool => activeTools.has(tool.name))
+		.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.parameters }))
+	add("tool-definitions", tools.length > 0 ? safeJsonStringify(tools).length : 0, tools.length)
+
+	const context = buildSessionContext(ctx.sessionManager.getEntries() as SessionEntry[], ctx.sessionManager.getLeafId())
+	for (const message of context.messages) {
+		if (!isRecord(message)) continue
+		if (message.role === "custom" && typeof message.customType === "string" && HIDDEN_MESSAGE_TYPES.has(message.customType)) continue
+
+		if (message.role === "user") {
+			const { textChars, images } = contentSize(message.content)
+			const skillBlock = parseSkillBlock(messageText(message))
+			if (skillBlock) {
+				const userChars = Math.min(textChars, skillBlock.userMessage?.length ?? 0)
+				add("loaded-skills", textChars - userChars, 1)
+				if (userChars > 0) add("user-messages", userChars, 1)
+			} else {
+				add("user-messages", textChars, 1)
+			}
+			add("media", images * ESTIMATED_IMAGE_CHARS, images)
+			continue
+		}
+
+		if (message.role === "assistant" && Array.isArray(message.content)) {
+			for (const block of message.content) {
+				if (!isRecord(block)) continue
+				if (block.type === "text" && typeof block.text === "string") add("assistant-text", block.text.length, 1)
+				if (block.type === "thinking" && typeof block.thinking === "string") add("assistant-thinking", block.thinking.length, 1)
+				if (block.type === "toolCall") {
+					const toolName = typeof block.name === "string" ? block.name : "unknown"
+					const chars = toolName.length + safeJsonStringify(block.arguments).length
+					add("tool-calls", chars, 1)
+					addToolTotal(toolCallTotals, toolName, chars)
+				}
+			}
+			continue
+		}
+
+		if (message.role === "toolResult") {
+			const { textChars, images } = contentSize(message.content)
+			add("tool-results", textChars, 1)
+			addToolTotal(toolResultTotals, typeof message.toolName === "string" ? message.toolName : "unknown", textChars)
+			add("media", images * ESTIMATED_IMAGE_CHARS, images)
+			continue
+		}
+
+		if (message.role === "compactionSummary") {
+			add("compactions", convertedMessageTextChars(message), 1)
+			continue
+		}
+		if (message.role === "branchSummary") {
+			add("branch-summaries", convertedMessageTextChars(message), 1)
+			continue
+		}
+		if (message.role === "bashExecution" && !message.excludeFromContext) {
+			add("bash-executions", convertedMessageTextChars(message), 1)
+			continue
+		}
+		if (message.role === "custom") {
+			const { textChars, images } = contentSize(message.content)
+			add("custom-messages", textChars, 1)
+			add("media", images * ESTIMATED_IMAGE_CHARS, images)
+		}
+	}
+
+	const rows = definitions.map(definition => {
+		const total = totals.get(definition.id) ?? { chars: 0, count: 0 }
+		const tokens = Math.ceil(total.chars / CHARS_PER_TOKEN)
+		const tools =
+			definition.id === "tool-calls"
+				? splitToolTotals(toolCallTotals, tokens)
+				: definition.id === "tool-results"
+					? splitToolTotals(toolResultTotals, tokens)
+					: undefined
+		return { ...definition, tokens, count: total.count, ...(tools && tools.length > 0 ? { tools } : {}) }
+	})
+	const usage = ctx.getContextUsage()
+	return {
+		estimatedTokens: rows.reduce((sum, row) => sum + row.tokens, 0),
+		contextWindow: usage?.contextWindow ?? ctx.model?.contextWindow ?? null,
+		piTokens: usage?.tokens ?? null,
+		rows
+	}
 }
 
 function currentLineCount(path: string, fallback: number) {
@@ -161,7 +423,7 @@ function readCallFromBlock(block: unknown): ReadCall | undefined {
 	return call
 }
 
-function collectContextReadMap(ctx: ExtensionCommandContext): ContextReadMapDetails {
+function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): ContextReadMapDetails {
 	const cwd = ctx.cwd
 	const files = new Map<string, FileEvidence>()
 	// ordinal = evidence recency; order = first-seen file order for stable groups.
@@ -264,7 +526,7 @@ function collectContextReadMap(ctx: ExtensionCommandContext): ContextReadMapDeta
 		return recentDiff || a.displayPath.localeCompare(b.displayPath)
 	})
 
-	return { cwd, createdAt: Date.now(), linesPerCell: LINES_PER_CELL, files: sorted }
+	return { cwd, createdAt: Date.now(), linesPerCell: LINES_PER_CELL, tokens: collectTokenBreakdown(pi, ctx), files: sorted }
 }
 
 function sourcePriority(kind: EvidenceKind) {
@@ -345,6 +607,12 @@ function truncatePath(path: string, width: number) {
 	return `${path.slice(0, head)}${marker}${path.slice(path.length - tail)}`
 }
 
+function truncateLabel(label: string, width: number) {
+	if (label.length <= width) return label
+	if (width <= 1) return label.slice(0, width)
+	return `${label.slice(0, width - 1)}…`
+}
+
 function osc8(text: string, url: string) {
 	return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`
 }
@@ -357,12 +625,130 @@ function fileUrl(path: string, startLine?: number, endLine?: number) {
 	return `${pathToFileURL(path).href}${lineFragment}`
 }
 
+function shortTokenCount(value: number) {
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}m`
+	if (value >= 1000) return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}k`
+	return `${value}`
+}
+
+function tokenRowColor(id: TokenRowId, text: string, theme: Theme) {
+	if (id === "system-base") return theme.fg("borderAccent", text)
+	if (id === "startup-context") return theme.fg("accent", text)
+	if (id === "advertised-skills") return theme.fg("warning", text)
+	if (id === "tool-definitions") return theme.fg("toolTitle", text)
+	if (id === "user-messages") return theme.fg("success", text)
+	if (id === "loaded-skills") return theme.fg("mdLink", text)
+	if (id === "assistant-text") return theme.fg("toolOutput", text)
+	if (id === "assistant-thinking") return theme.fg("muted", text)
+	if (id === "tool-calls") return theme.fg("syntaxFunction", text)
+	if (id === "tool-results") return theme.fg("syntaxString", text)
+	if (id === "compactions") return theme.fg("error", text)
+	if (id === "branch-summaries") return theme.fg("syntaxType", text)
+	if (id === "bash-executions") return theme.fg("bashMode", text)
+	if (id === "custom-messages") return theme.fg("customMessageLabel", text)
+	return theme.fg("mdLinkUrl", text)
+}
+
+function cumulativeTokenBar(rows: TokenBreakdownRow[], capacity: number, width: number, theme: Theme) {
+	if (width <= 0) return ""
+	if (capacity === 0) return theme.fg("dim", "░".repeat(width))
+	let cumulativeTokens = 0
+	let usedCells = 0
+	const segments = rows
+		.map(row => {
+			cumulativeTokens += row.tokens
+			const boundary = Math.min(width, Math.round((cumulativeTokens / capacity) * width))
+			const cells = Math.max(0, boundary - usedCells)
+			usedCells = boundary
+			return tokenRowColor(row.id, "█".repeat(cells), theme)
+		})
+		.join("")
+	return `${segments}${theme.fg("dim", "░".repeat(Math.max(0, width - usedCells)))}`
+}
+
+function countLabel(row: TokenBreakdownRow) {
+	if (row.count === 0) return "-"
+	return `${row.count} ${row.unit}${row.count === 1 ? "" : "s"}`
+}
+
+function toolCountLabel(tool: ToolTokenBreakdown, unit: string) {
+	return `${tool.count} ${unit}${tool.count === 1 ? "" : "s"}`
+}
+
+function renderTokenBreakdown(tokens: ContextTokenBreakdown, width: number, theme: Theme) {
+	const estimatedPercent = tokens.contextWindow ? (tokens.estimatedTokens / tokens.contextWindow) * 100 : undefined
+	const piPercent = tokens.contextWindow && tokens.piTokens !== null ? (tokens.piTokens / tokens.contextWindow) * 100 : undefined
+	const capacity = tokens.contextWindow ? ` / ${shortTokenCount(tokens.contextWindow)} (${estimatedPercent?.toFixed(1)}%)` : ""
+	const meter =
+		tokens.piTokens === null
+			? "Pi meter unavailable"
+			: `Pi meter ${shortTokenCount(tokens.piTokens)}${piPercent === undefined ? "" : ` (${piPercent.toFixed(1)}%)`}`
+	const bar = cumulativeTokenBar(tokens.rows, tokens.contextWindow ?? tokens.estimatedTokens, Math.max(1, width - 2), theme)
+	const lines = [
+		...wrapTextWithAnsi(
+			`${theme.fg("accent", theme.bold("Context token breakdown"))}  ≈${shortTokenCount(tokens.estimatedTokens)}${capacity} · ${meter}`,
+			width
+		),
+		...wrapTextWithAnsi(theme.fg("dim", "Estimated as chars ÷ 4 · each image ≈1.2k · provider framing/tokenizer overhead excluded"), width),
+		width > 2 ? `[${bar}]` : bar,
+		""
+	]
+	for (const section of ["prefix", "messages"] as const) {
+		const rows = tokens.rows.filter(row => row.section === section)
+		const sectionTokens = rows.reduce((sum, row) => sum + row.tokens, 0)
+		lines.push(
+			`${theme.bold(section === "prefix" ? "Prompt prefix" : "Effective messages")} ${theme.fg("dim", `≈${shortTokenCount(sectionTokens)}`)}`
+		)
+		if (width >= 76) {
+			const labelWidth = 23
+			const tokenWidth = 7
+			const percentWidth = 6
+			const countWidth = 13
+			for (const row of rows) {
+				const percent = tokens.estimatedTokens === 0 ? 0 : (row.tokens / tokens.estimatedTokens) * 100
+				const label = row.label.padEnd(labelWidth)
+				const amount = `≈${shortTokenCount(row.tokens)}`.padStart(tokenWidth)
+				const share = `${percent.toFixed(1)}%`.padStart(percentWidth)
+				const count = countLabel(row).padStart(countWidth)
+				lines.push(`  ${tokenRowColor(row.id, "■", theme)} ${label} ${amount} ${share} ${theme.fg("dim", count)}`)
+				const tools = row.tools ?? []
+				for (const [toolIndex, tool] of tools.entries()) {
+					const toolLabel = truncateLabel(tool.toolName, labelWidth - 4).padEnd(labelWidth - 4)
+					const toolAmount = `≈${shortTokenCount(tool.tokens)}`.padStart(tokenWidth)
+					const toolPercent = tokens.estimatedTokens === 0 ? 0 : (tool.tokens / tokens.estimatedTokens) * 100
+					const toolShare = `${toolPercent.toFixed(1)}%`.padStart(percentWidth)
+					const toolCount = toolCountLabel(tool, row.unit).padStart(countWidth)
+					const branch = toolIndex === tools.length - 1 ? "└──" : "├──"
+					lines.push(`    ${branch} ${toolLabel} ${theme.fg("dim", `${toolAmount} ${toolShare} ${toolCount}`)}`)
+				}
+			}
+		} else {
+			for (const row of rows) {
+				const percent = tokens.estimatedTokens === 0 ? 0 : (row.tokens / tokens.estimatedTokens) * 100
+				const stats = `≈${shortTokenCount(row.tokens)} · ${percent.toFixed(1)}% · ${countLabel(row)}`
+				lines.push(...wrapTextWithAnsi(`  ${tokenRowColor(row.id, "■", theme)} ${row.label}  ${theme.fg("dim", stats)}`, width))
+				const tools = row.tools ?? []
+				for (const [toolIndex, tool] of tools.entries()) {
+					const toolPercent = tokens.estimatedTokens === 0 ? 0 : (tool.tokens / tokens.estimatedTokens) * 100
+					const toolStats = `≈${shortTokenCount(tool.tokens)} · ${toolPercent.toFixed(1)}% · ${toolCountLabel(tool, row.unit)}`
+					const branch = toolIndex === tools.length - 1 ? "└──" : "├──"
+					lines.push(...wrapTextWithAnsi(`    ${branch} ${tool.toolName}  ${theme.fg("dim", toolStats)}`, width))
+				}
+			}
+		}
+		lines.push("")
+	}
+	return lines
+}
+
 function renderSnapshot(details: ContextReadMapDetails, width: number, theme: Theme) {
-	if (details.files.length === 0) return "No file-backed context evidence."
+	const tokenLines = details.tokens ? renderTokenBreakdown(details.tokens, width, theme) : []
+	if (details.files.length === 0) return [...tokenLines, "No file-backed context evidence."].join("\n")
 	const maxOrdinal = Math.max(0, ...details.files.flatMap(file => file.sources.map(source => source.ordinal)))
 	const wide = width >= 100
 	const pathWidth = 50
 	const lines = [
+		...tokenLines,
 		`${theme.fg("accent", theme.bold("Context read map"))} ${`One cell = ${details.linesPerCell} lines · ${details.files.length} files total`}`,
 		`${theme.fg("dim", "Read count:")}  ${theme.fg("dim", "⣀")} 1  ${theme.fg("dim", "⣤")} 2  ${theme.fg("dim", "⣶")} 3  ${theme.fg("dim", "⣿")} 4+`,
 		`${theme.fg("dim", "Type:")} ${theme.fg("borderAccent", "system prompt")}  ${theme.fg("accent", "skill loaded")} Read tool: [ ${theme.fg("warning", "recent")} / ${theme.fg("toolTitle", "mid")} / ${theme.fg("dim", "old")} ]`,
@@ -421,10 +807,10 @@ export function registerShowContextCommand(pi: ExtensionAPI) {
 	})
 
 	pi.registerCommand("show-context", {
-		description: "Show a file coverage map for the current model context.",
+		description: "Show token and file coverage breakdowns for the current model context.",
 		async handler(_args, ctx) {
 			await ctx.waitForIdle()
-			const details = collectContextReadMap(ctx)
+			const details = collectContextReadMap(pi, ctx)
 			pi.sendMessage({ customType: CONTEXT_READ_MAP_MESSAGE_TYPE, content: "", display: true, details })
 		}
 	})

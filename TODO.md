@@ -23,6 +23,7 @@ Implemented:
 - [x] `bun run check` passes
 - [x] package dry-run checked
 - [x] `/show-context` Context Read Map command
+- [x] `/show-context` visual context token breakdown
 - [x] `/llm-stats` per-call token usage command
 
 ## Remaining work
