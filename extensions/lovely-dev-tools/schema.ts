@@ -1,5 +1,3 @@
-import { visibleWidth } from "@earendil-works/pi-tui"
-
 export const OMIT = Symbol("omit")
 export const OMIT_LABEL = "<omit>"
 
@@ -15,7 +13,6 @@ export type Schema = Record<string, unknown> & {
 	properties?: unknown
 	required?: unknown
 }
-export type ArgValue = unknown | typeof OMIT
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -68,8 +65,7 @@ export function getSchemaDescription(schema: Schema | undefined) {
 }
 
 function cloneSchemaValue(value: unknown): unknown {
-	if (value === null || typeof value !== "object") return value
-	return JSON.parse(JSON.stringify(value)) as unknown
+	return structuredClone(value)
 }
 
 export function hasObjectSchemaProperties(schema: Schema | undefined) {
@@ -105,18 +101,18 @@ export function defaultArgValue(schema: Schema | undefined, seedArray: boolean):
 	return null
 }
 
-export function formatArgValue(value: ArgValue) {
+export function formatArgValue(value: unknown) {
 	if (value === OMIT) return OMIT_LABEL
 	const json = JSON.stringify(value)
 	return json === undefined ? "undefined" : json
 }
 
-export function formatInputValue(value: ArgValue) {
+export function formatInputValue(value: unknown) {
 	if (value === OMIT) return ""
 	return formatArgValue(value)
 }
 
-export function coerceArgValue(text: string, schema: Schema | undefined): ArgValue | undefined {
+export function coerceArgValue(text: string, schema: Schema | undefined): unknown | undefined {
 	const type = schema?.type
 	if (type === "string") {
 		const parsed = parseJsonValue(text.trim())
@@ -139,22 +135,4 @@ export function formatToolArgs(args: Record<string, unknown>) {
 	return Object.entries(args)
 		.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
 		.join(", ")
-}
-
-export function wrapText(text: string, width: number) {
-	if (width <= 0) return [""]
-	const words = text.split(/(\s+)/).filter(Boolean)
-	const lines: string[] = []
-	let line = ""
-	for (const word of words) {
-		const next = `${line}${word}`
-		if (line && visibleWidth(next) > width) {
-			lines.push(line.trimEnd())
-			line = word.trimStart()
-			continue
-		}
-		line = next
-	}
-	if (line || lines.length === 0) lines.push(line.trimEnd())
-	return lines
 }

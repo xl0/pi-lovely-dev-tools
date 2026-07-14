@@ -1,5 +1,5 @@
 import { type ExtensionUIContext, getSettingsListTheme } from "@earendil-works/pi-coding-agent"
-import { CURSOR_MARKER, getKeybindings, Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui"
+import { CURSOR_MARKER, getKeybindings, Input, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui"
 import {
 	asSchema,
 	coerceArgValue,
@@ -16,8 +16,7 @@ import {
 	parseJsonValue,
 	type Schema,
 	schemaEnum,
-	schemaStringArray,
-	wrapText
+	schemaStringArray
 } from "./schema"
 
 type ArgPath = Array<string | number>
@@ -37,7 +36,6 @@ type ArrayContext = {
 }
 
 type EditorState = {
-	args: Record<string, unknown>
 	rows: ArgRow[]
 	selectedIndex: number
 	focusPart: "include" | "value"
@@ -227,7 +225,6 @@ export async function editToolArgs(ui: ExtensionUIContext, tool: EditableTool): 
 	return ui.custom<Record<string, unknown> | undefined>((_tui, theme, _keybindings, done) => {
 		const listTheme = getSettingsListTheme()
 		const state: EditorState = {
-			args,
 			rows: initialRows,
 			selectedIndex: 0,
 			focusPart: "value",
@@ -401,17 +398,17 @@ export async function editToolArgs(ui: ExtensionUIContext, tool: EditableTool): 
 				const [selectedSummaryLine, ...selectedSummaryRest] = selectedSummary
 				const helpLines: string[] = selected
 					? [
-							...wrapText(tool.description, width - 2),
+							...wrapTextWithAnsi(tool.description, width - 2),
 							`${pathLabel(selected.path)} · ${selected.kind}${selectedSummaryLine ? ` · ${selectedSummaryLine.trim()}` : ""}`,
-							...selectedSummaryRest.flatMap(line => wrapText(line, width))
+							...selectedSummaryRest.flatMap(line => wrapTextWithAnsi(line, width))
 						]
-					: wrapText(tool.description, width - 2)
+					: wrapTextWithAnsi(tool.description, width - 2)
 				for (let index = 0; index < 5; index++) {
 					const line = helpLines[index]
 					if (line) lines.push(listTheme.description(`  ${line}`))
 					else lines.push("")
 				}
-				for (const line of wrapText(selectionHelpText(), width)) lines.push(theme.fg("dim", line))
+				for (const line of wrapTextWithAnsi(selectionHelpText(), width)) lines.push(theme.fg("dim", line))
 				lines.push("")
 
 				const maxVisible = 16

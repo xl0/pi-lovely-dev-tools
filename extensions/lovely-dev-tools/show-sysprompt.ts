@@ -1,7 +1,7 @@
 import type { ExtensionAPI, Theme, ToolInfo } from "@earendil-works/pi-coding-agent"
 import { Box, Text } from "@earendil-works/pi-tui"
 import { SYSTEM_PROMPT_MESSAGE_TYPE, TOOL_SCHEMAS_MESSAGE_TYPE } from "./messages"
-import { asSchema, formatSchemaType, type Schema, schemaStringArray } from "./schema"
+import { asSchema, formatSchemaType, schemaStringArray } from "./schema"
 
 function formatCollapsibleMessage(title: string, content: string, expanded: boolean, theme: Theme) {
 	const lineCount = content.length === 0 ? 0 : content.split("\n").length
@@ -38,7 +38,7 @@ function formatToolSchemas(tools: ToolInfo[]): string {
 					const property = asSchema(properties?.[name])
 					const presence = required.has(name) ? "required" : "optional"
 					const description = property?.description ? ` - ${property.description}` : ""
-					return `  ${name}: ${formatSchemaType(property as Schema | undefined)} [${presence}]${description}`
+					return `  ${name}: ${formatSchemaType(property)} [${presence}]${description}`
 				})
 				.join("\n")
 			return `${header}\n${params}`

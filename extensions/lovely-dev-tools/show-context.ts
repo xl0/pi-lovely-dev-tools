@@ -2,7 +2,13 @@ import { existsSync, readFileSync } from "node:fs"
 import { isAbsolute, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent"
-import { buildSessionContext, convertToLlm, parseSkillBlock, type SessionEntry } from "@earendil-works/pi-coding-agent"
+import {
+	buildSessionContext,
+	convertToLlm,
+	formatSkillsForPrompt,
+	parseSkillBlock,
+	type SessionEntry
+} from "@earendil-works/pi-coding-agent"
 import { Box, type Component, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui"
 import { CONTEXT_READ_MAP_MESSAGE_TYPE, HIDDEN_MESSAGE_TYPES } from "./messages"
 import { isRecord } from "./schema"
@@ -30,24 +36,26 @@ type FileEvidence = {
 	order: number
 }
 
-type TokenSection = "prefix" | "messages"
+const TOKEN_ROWS = [
+	{ id: "system-base", section: "prefix", label: "System prompt · base", unit: "section" },
+	{ id: "startup-context", section: "prefix", label: "Startup context files", unit: "file" },
+	{ id: "advertised-skills", section: "prefix", label: "Advertised skills", unit: "skill" },
+	{ id: "tool-definitions", section: "prefix", label: "Tool definitions", unit: "tool" },
+	{ id: "user-messages", section: "messages", label: "User messages", unit: "message" },
+	{ id: "loaded-skills", section: "messages", label: "Loaded skill bodies", unit: "skill" },
+	{ id: "assistant-text", section: "messages", label: "Assistant text", unit: "block" },
+	{ id: "assistant-thinking", section: "messages", label: "Assistant thinking", unit: "block" },
+	{ id: "tool-calls", section: "messages", label: "Tool calls", unit: "call" },
+	{ id: "tool-results", section: "messages", label: "Tool results", unit: "result" },
+	{ id: "compactions", section: "messages", label: "Compactions", unit: "summary" },
+	{ id: "branch-summaries", section: "messages", label: "Branch summaries", unit: "summary" },
+	{ id: "bash-executions", section: "messages", label: "User shell runs", unit: "run" },
+	{ id: "custom-messages", section: "messages", label: "Custom messages", unit: "message" },
+	{ id: "media", section: "messages", label: "Images / media", unit: "image" }
+] as const
 
-type TokenRowId =
-	| "system-base"
-	| "startup-context"
-	| "advertised-skills"
-	| "tool-definitions"
-	| "user-messages"
-	| "loaded-skills"
-	| "assistant-text"
-	| "assistant-thinking"
-	| "tool-calls"
-	| "tool-results"
-	| "compactions"
-	| "branch-summaries"
-	| "bash-executions"
-	| "custom-messages"
-	| "media"
+type TokenRowId = (typeof TOKEN_ROWS)[number]["id"]
+type TokenSection = (typeof TOKEN_ROWS)[number]["section"]
 
 type TokenBreakdownRow = {
 	id: TokenRowId
@@ -119,10 +127,6 @@ function safeJsonStringify(value: unknown) {
 	}
 }
 
-function escapeXml(text: string) {
-	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;")
-}
-
 function contextFilesPromptSection(contextFiles: Array<{ path: string; content: string }>) {
 	if (contextFiles.length === 0) return ""
 	let section = "\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n"
@@ -130,29 +134,6 @@ function contextFilesPromptSection(contextFiles: Array<{ path: string; content: 
 		section += `<project_instructions path="${contextFile.path}">\n${contextFile.content}\n</project_instructions>\n\n`
 	}
 	return `${section}</project_context>\n`
-}
-
-function skillsPromptSection(skills: Array<{ name: string; description: string; filePath: string; disableModelInvocation: boolean }>) {
-	const visible = skills.filter(skill => !skill.disableModelInvocation)
-	if (visible.length === 0) return ""
-	const lines = [
-		"\n\nThe following skills provide specialized instructions for specific tasks.",
-		"Use the read tool to load a skill's file when the task matches its description.",
-		"When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.",
-		"",
-		"<available_skills>"
-	]
-	for (const skill of visible) {
-		lines.push(
-			"  <skill>",
-			`    <name>${escapeXml(skill.name)}</name>`,
-			`    <description>${escapeXml(skill.description)}</description>`,
-			`    <location>${escapeXml(skill.filePath)}</location>`,
-			"  </skill>"
-		)
-	}
-	lines.push("</available_skills>")
-	return lines.join("\n")
 }
 
 function contentSize(content: unknown) {
@@ -196,28 +177,15 @@ function splitToolTotals(totals: Map<string, { chars: number; count: number }>, 
 	})
 }
 
-function collectTokenBreakdown(pi: ExtensionAPI, ctx: ExtensionCommandContext): ContextTokenBreakdown {
-	const definitions: Array<{ id: TokenRowId; section: TokenSection; label: string; unit: string }> = [
-		{ id: "system-base", section: "prefix", label: "System prompt · base", unit: "section" },
-		{ id: "startup-context", section: "prefix", label: "Startup context files", unit: "file" },
-		{ id: "advertised-skills", section: "prefix", label: "Advertised skills", unit: "skill" },
-		{ id: "tool-definitions", section: "prefix", label: "Tool definitions", unit: "tool" },
-		{ id: "user-messages", section: "messages", label: "User messages", unit: "message" },
-		{ id: "loaded-skills", section: "messages", label: "Loaded skill bodies", unit: "skill" },
-		{ id: "assistant-text", section: "messages", label: "Assistant text", unit: "block" },
-		{ id: "assistant-thinking", section: "messages", label: "Assistant thinking", unit: "block" },
-		{ id: "tool-calls", section: "messages", label: "Tool calls", unit: "call" },
-		{ id: "tool-results", section: "messages", label: "Tool results", unit: "result" },
-		{ id: "compactions", section: "messages", label: "Compactions", unit: "summary" },
-		{ id: "branch-summaries", section: "messages", label: "Branch summaries", unit: "summary" },
-		{ id: "bash-executions", section: "messages", label: "User shell runs", unit: "run" },
-		{ id: "custom-messages", section: "messages", label: "Custom messages", unit: "message" },
-		{ id: "media", section: "messages", label: "Images / media", unit: "image" }
-	]
+function collectTokenBreakdown(
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	messages: ReturnType<typeof buildSessionContext>["messages"]
+): ContextTokenBreakdown {
 	const totals = new Map<TokenRowId, { chars: number; count: number }>()
 	const toolCallTotals = new Map<string, { chars: number; count: number }>()
 	const toolResultTotals = new Map<string, { chars: number; count: number }>()
-	for (const definition of definitions) totals.set(definition.id, { chars: 0, count: 0 })
+	for (const definition of TOKEN_ROWS) totals.set(definition.id, { chars: 0, count: 0 })
 	const add = (id: TokenRowId, chars: number, count = 0) => {
 		const total = totals.get(id)
 		if (!total) return
@@ -228,7 +196,7 @@ function collectTokenBreakdown(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 	const options = ctx.getSystemPromptOptions()
 	const systemPrompt = ctx.getSystemPrompt()
 	const contextSection = contextFilesPromptSection(options.contextFiles ?? [])
-	const skillsSection = skillsPromptSection(options.skills ?? [])
+	const skillsSection = formatSkillsForPrompt(options.skills ?? [])
 	let baseSystemChars = systemPrompt.length
 	if (contextSection && systemPrompt.includes(contextSection)) {
 		baseSystemChars -= contextSection.length
@@ -247,8 +215,7 @@ function collectTokenBreakdown(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 		.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.parameters }))
 	add("tool-definitions", tools.length > 0 ? safeJsonStringify(tools).length : 0, tools.length)
 
-	const context = buildSessionContext(ctx.sessionManager.getEntries() as SessionEntry[], ctx.sessionManager.getLeafId())
-	for (const message of context.messages) {
+	for (const message of messages) {
 		if (!isRecord(message)) continue
 		if (message.role === "custom" && typeof message.customType === "string" && HIDDEN_MESSAGE_TYPES.has(message.customType)) continue
 
@@ -308,7 +275,7 @@ function collectTokenBreakdown(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 		}
 	}
 
-	const rows = definitions.map(definition => {
+	const rows = TOKEN_ROWS.map(definition => {
 		const total = totals.get(definition.id) ?? { chars: 0, count: 0 }
 		const tokens = Math.ceil(total.chars / CHARS_PER_TOKEN)
 		const tools =
@@ -454,8 +421,8 @@ function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 	}
 
 	const readCalls = new Map<string, ReadCall>()
-	const context = buildSessionContext(ctx.sessionManager.getEntries() as SessionEntry[], ctx.sessionManager.getLeafId())
-	for (const message of context.messages) {
+	const messages = buildSessionContext(ctx.sessionManager.getEntries() as SessionEntry[], ctx.sessionManager.getLeafId()).messages
+	for (const message of messages) {
 		if (!isRecord(message)) continue
 		const contextMessage = message as { role?: unknown; content?: unknown; toolName?: unknown; toolCallId?: unknown; isError?: unknown }
 		if (contextMessage.role === "assistant" && Array.isArray(contextMessage.content)) {
@@ -526,7 +493,7 @@ function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 		return recentDiff || a.displayPath.localeCompare(b.displayPath)
 	})
 
-	return { cwd, createdAt: Date.now(), linesPerCell: LINES_PER_CELL, tokens: collectTokenBreakdown(pi, ctx), files: sorted }
+	return { cwd, createdAt: Date.now(), linesPerCell: LINES_PER_CELL, tokens: collectTokenBreakdown(pi, ctx, messages), files: sorted }
 }
 
 function sourcePriority(kind: EvidenceKind) {
