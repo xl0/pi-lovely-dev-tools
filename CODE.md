@@ -29,7 +29,7 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 
 Flat args are assigned to top-level schema properties in schema order by a schema-only parser; shell-style quotes preserve spaces and empty strings. Example: `/tool read file.txt 10 20`.
 
-Custom message type: `lovely-dev-tools.run-tool` with empty `content` and `details` containing `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, `timestamp`, and optional `imageFallbacks`.
+Custom message type: `lovely-dev-tools.run-tool` with empty `content` and `details` containing `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, and optional `imageFallbacks`.
 
 The empty `content` avoids accidental context pollution if the extension is later unloaded. The `context` hook filters these custom messages out of LLM context while keeping them visible in the TUI/session.
 

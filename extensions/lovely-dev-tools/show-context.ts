@@ -9,7 +9,7 @@ import {
 	parseSkillBlock,
 	type SessionEntry
 } from "@earendil-works/pi-coding-agent"
-import { Box, type Component, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui"
+import { Box, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui"
 import { CONTEXT_READ_MAP_MESSAGE_TYPE, HIDDEN_MESSAGE_TYPES } from "./messages"
 import { isRecord } from "./schema"
 
@@ -81,8 +81,6 @@ type ContextTokenBreakdown = {
 }
 
 type ContextReadMapDetails = {
-	cwd: string
-	createdAt: number
 	linesPerCell: number
 	tokens?: ContextTokenBreakdown
 	files: FileEvidence[]
@@ -339,23 +337,19 @@ function addEvidence(
 	file.sources.push(source)
 }
 
-function frontmatterRange(path: string): EvidenceRange {
-	if (!existsSync(path)) return { startLine: 1, endLine: 1 }
-	const text = readFileSync(path, "utf8")
-	const lines = text.split("\n")
-	if (lines[0]?.trim() !== "---") return { startLine: 1, endLine: 1 }
+function readSkillRanges(path: string) {
+	const fallback = { startLine: 1, endLine: 1 }
+	if (!existsSync(path)) return { frontmatter: fallback, body: fallback }
+	const lines = readFileSync(path, "utf8").split("\n")
+	if (lines[0]?.trim() !== "---") {
+		return { frontmatter: fallback, body: { startLine: 1, endLine: Math.max(1, lines.length) } }
+	}
 	const endIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---")
-	return { startLine: 1, endLine: endIndex === -1 ? 1 : endIndex + 1 }
-}
-
-function bodyRange(path: string): EvidenceRange {
-	if (!existsSync(path)) return { startLine: 1, endLine: 1 }
-	const text = readFileSync(path, "utf8")
-	const lines = text.split("\n")
-	if (lines[0]?.trim() !== "---") return { startLine: 1, endLine: Math.max(1, lines.length) }
-	const endIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---")
-	const startLine = endIndex === -1 ? 1 : Math.min(lines.length, endIndex + 2)
-	return { startLine, endLine: Math.max(startLine, lines.length) }
+	const bodyStart = endIndex === -1 ? 1 : Math.min(lines.length, endIndex + 2)
+	return {
+		frontmatter: { startLine: 1, endLine: endIndex === -1 ? 1 : endIndex + 1 },
+		body: { startLine: bodyStart, endLine: Math.max(bodyStart, lines.length) }
+	}
 }
 
 function messageText(message: unknown) {
@@ -397,6 +391,14 @@ function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 	let ordinal = 0
 	let order = 0
 	const systemPromptOptions = ctx.getSystemPromptOptions()
+	const skillRanges = new Map<string, ReturnType<typeof readSkillRanges>>()
+	const getSkillRanges = (path: string) => {
+		const cached = skillRanges.get(path)
+		if (cached) return cached
+		const ranges = readSkillRanges(path)
+		skillRanges.set(path, ranges)
+		return ranges
+	}
 
 	for (const contextFile of systemPromptOptions.contextFiles ?? []) {
 		const lineCount = Math.max(1, countLines(contextFile.content))
@@ -415,7 +417,7 @@ function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 			files,
 			cwd,
 			skill.filePath,
-			{ kind: "advertised-skill", range: frontmatterRange(skill.filePath), ordinal: ordinal++ },
+			{ kind: "advertised-skill", range: getSkillRanges(skill.filePath).frontmatter, ordinal: ordinal++ },
 			order++
 		)
 	}
@@ -473,7 +475,7 @@ function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 					files,
 					cwd,
 					skillBlock.location,
-					{ kind: "loaded-skill-body", range: bodyRange(skillBlock.location), ordinal: ordinal++ },
+					{ kind: "loaded-skill-body", range: getSkillRanges(skillBlock.location).body, ordinal: ordinal++ },
 					order++
 				)
 			}
@@ -493,7 +495,7 @@ function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 		return recentDiff || a.displayPath.localeCompare(b.displayPath)
 	})
 
-	return { cwd, createdAt: Date.now(), linesPerCell: LINES_PER_CELL, tokens: collectTokenBreakdown(pi, ctx, messages), files: sorted }
+	return { linesPerCell: LINES_PER_CELL, tokens: collectTokenBreakdown(pi, ctx, messages), files: sorted }
 }
 
 function sourcePriority(kind: EvidenceKind) {
@@ -742,23 +744,10 @@ function renderSnapshot(details: ContextReadMapDetails, width: number, theme: Th
 	return lines.join("\n")
 }
 
-class ContextReadMapView implements Component {
-	constructor(
-		private details: ContextReadMapDetails,
-		private theme: Theme
-	) {}
-
-	render(width: number) {
-		return renderSnapshot(this.details, width, this.theme).split("\n")
-	}
-
-	invalidate() {}
-}
-
 function isContextReadMapDetails(value: unknown): value is ContextReadMapDetails {
 	if (!isRecord(value)) return false
-	const details = value as { files?: unknown; cwd?: unknown; createdAt?: unknown }
-	return Array.isArray(details.files) && typeof details.cwd === "string" && typeof details.createdAt === "number"
+	const details = value as { files?: unknown; linesPerCell?: unknown }
+	return Array.isArray(details.files) && typeof details.linesPerCell === "number"
 }
 
 export function registerShowContextCommand(pi: ExtensionAPI) {
@@ -766,7 +755,10 @@ export function registerShowContextCommand(pi: ExtensionAPI) {
 		const details = isContextReadMapDetails(message.details) ? message.details : undefined
 		const box = new Box(1, 1)
 		if (details) {
-			box.addChild(new ContextReadMapView(details, theme))
+			box.addChild({
+				render: width => renderSnapshot(details, width, theme).split("\n"),
+				invalidate() {}
+			})
 		} else {
 			box.addChild(new Text("Invalid context read map.", 0, 0))
 		}

@@ -1,7 +1,7 @@
 {
 	"name": "@xl0/pi-lovely-dev-tools",
 	"version": "0.2.2",
-	"description": "Pi interactive debugging commands /tool /show-sysprompt /show-context",
+	"description": "Pi interactive debugging commands /tool /show-sysprompt /show-context /llm-stats",
 	"keywords": [
 		"pi-package",
 		"dev tools",
@@ -35,14 +35,12 @@
 		"@earendil-works/pi-coding-agent": "file:../pi-mono/packages/coding-agent",
 		"@earendil-works/pi-tui": "file:../pi-mono/packages/tui",
 		"@typescript/native-preview": "^7.0.0-dev.20260502.1",
-		"bun-types": "^1.3.13",
-		"typescript": "^6.0.3"
+		"bun-types": "^1.3.13"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*",
-		"@earendil-works/pi-tui": "*",
-		"typebox": "*"
+		"@earendil-works/pi-tui": "*"
 	},
 	"pi": {
 		"extensions": [

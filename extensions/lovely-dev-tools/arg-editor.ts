@@ -1,5 +1,5 @@
 import { type ExtensionUIContext, getSettingsListTheme } from "@earendil-works/pi-coding-agent"
-import { CURSOR_MARKER, getKeybindings, Input, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui"
+import { CURSOR_MARKER, Input, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui"
 import {
 	asSchema,
 	coerceArgValue,
@@ -222,7 +222,7 @@ export async function editToolArgs(ui: ExtensionUIContext, tool: EditableTool): 
 	const initialRows = buildObjectRows(parameters, args)
 	if (initialRows.length === 0) return {}
 
-	return ui.custom<Record<string, unknown> | undefined>((_tui, theme, _keybindings, done) => {
+	return ui.custom<Record<string, unknown> | undefined>((_tui, theme, keybindings, done) => {
 		const listTheme = getSettingsListTheme()
 		const state: EditorState = {
 			rows: initialRows,
@@ -445,24 +445,23 @@ export async function editToolArgs(ui: ExtensionUIContext, tool: EditableTool): 
 			},
 			invalidate: () => state.activeInput?.invalidate(),
 			handleInput: (data: string) => {
-				const kb = getKeybindings()
-				if (kb.matches(data, "tui.input.submit")) {
+				if (keybindings.matches(data, "tui.input.submit")) {
 					if (commitActiveInput()) done(args)
-				} else if (kb.matches(data, "tui.select.up")) {
+				} else if (keybindings.matches(data, "tui.select.up")) {
 					if (!commitActiveInput()) return
 					state.selectedIndex = state.selectedIndex === 0 ? state.rows.length - 1 : state.selectedIndex - 1
 					updateActiveInput()
 					updateFocus()
-				} else if (kb.matches(data, "tui.select.down")) {
+				} else if (keybindings.matches(data, "tui.select.down")) {
 					if (!commitActiveInput()) return
 					state.selectedIndex = state.selectedIndex === state.rows.length - 1 ? 0 : state.selectedIndex + 1
 					updateActiveInput()
 					updateFocus()
-				} else if (kb.matches(data, "tui.editor.cursorRight")) {
+				} else if (keybindings.matches(data, "tui.editor.cursorRight")) {
 					const row = selectedRow()
 					if (state.focusPart === "include" && row && rowIncluded(row)) state.focusPart = "value"
 					else if (state.focusPart === "value") handleActiveInput(data)
-				} else if (kb.matches(data, "tui.editor.cursorLeft")) {
+				} else if (keybindings.matches(data, "tui.editor.cursorLeft")) {
 					const row = selectedRow()
 					if (state.focusPart === "value" && row && rowCanInclude(row) && (!state.activeInput || inputCursor(state.activeInput) === 0))
 						state.focusPart = "include"
@@ -480,7 +479,7 @@ export async function editToolArgs(ui: ExtensionUIContext, tool: EditableTool): 
 					handleActiveInput(data)
 				else if (data === "+" || data === "=") addArrayItemForSelection()
 				else if (data === "-") removeSelectedArrayItem()
-				else if (kb.matches(data, "tui.select.cancel")) done(undefined)
+				else if (keybindings.matches(data, "tui.select.cancel")) done(undefined)
 				else if (state.focusPart === "value") handleActiveInput(data)
 			}
 		}

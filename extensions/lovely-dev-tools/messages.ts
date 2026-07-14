@@ -25,7 +25,6 @@ export type RunToolDetails = {
 	toolCallId: string
 	result: AgentToolResult<unknown>
 	isError: boolean
-	timestamp: number
 	imageFallbacks?: ImageFallback[]
 }
 
@@ -37,8 +36,7 @@ export function isRunToolDetails(value: unknown): value is RunToolDetails {
 		isRecord(details.toolArgs) &&
 		typeof details.toolCallId === "string" &&
 		isRecord(details.result) &&
-		typeof details.isError === "boolean" &&
-		typeof details.timestamp === "number"
+		typeof details.isError === "boolean"
 	)
 }
 

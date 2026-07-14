@@ -2,40 +2,14 @@ import { resolve } from "node:path"
 import { validateToolArguments } from "@earendil-works/pi-ai"
 import {
 	type AgentSessionRuntimeDiagnostic,
-	type AgentToolResult,
 	type AgentToolUpdateCallback,
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 	type ExtensionCommandContext,
-	type ExtensionUIContext,
 	parseArgs,
 	SessionManager,
 	type ToolDefinition
 } from "@earendil-works/pi-coding-agent"
-
-export type ToolBackend = {
-	run(
-		toolName: string,
-		toolArgs: Record<string, unknown>,
-		toolCallId: string,
-		onUpdate?: AgentToolUpdateCallback<unknown>
-	): Promise<AgentToolResult<unknown>>
-	abort(): void
-	isAborted(): boolean
-	dispose(): void
-}
-
-const mutedUi = new Proxy(
-	{},
-	{
-		get: (_target, property) => {
-			if (property === "confirm") return async () => false
-			if (property === "getEditorText") return () => ""
-			if (property === "onTerminalInput") return () => () => {}
-			return () => undefined
-		}
-	}
-) as ExtensionUIContext
 
 function resolveExtensionPaths(paths: string[]): string[] {
 	return paths.map(path => (path.startsWith(".") || path.startsWith("/") ? resolve(process.cwd(), path) : path))
@@ -55,7 +29,7 @@ function diagnosticsText(diagnostics: AgentSessionRuntimeDiagnostic[]) {
 	return diagnostics.length ? `\n\nNested diagnostics:\n${diagnostics.map(d => `- ${d.type}: ${d.message}`).join("\n")}` : ""
 }
 
-export async function createToolBackend(ctx: ExtensionCommandContext, activeTools: string[]): Promise<ToolBackend> {
+export async function createToolBackend(ctx: ExtensionCommandContext, activeTools: string[]) {
 	const parsed = parseArgs(process.argv.slice(2))
 	const extensionPaths = parsed.extensions ?? []
 	const resourceLoaderOptions = {
@@ -71,13 +45,13 @@ export async function createToolBackend(ctx: ExtensionCommandContext, activeTool
 		services,
 		sessionManager: SessionManager.inMemory(ctx.cwd)
 	})
-	await created.session.bindExtensions({ uiContext: mutedUi })
+	await created.session.bindExtensions({})
 	created.session.setActiveToolsByName(activeTools)
 	created.session.extensionRunner.setUIContext(ctx.ui, ctx.mode)
 	const diagnostics = [...services.diagnostics]
 	const abort = new AbortController()
 	return {
-		async run(toolName, toolArgs, toolCallId, onUpdate) {
+		async run(toolName: string, toolArgs: Record<string, unknown>, toolCallId: string, onUpdate?: AgentToolUpdateCallback<unknown>) {
 			const definition = created.session.getToolDefinition(toolName)
 			if (!definition) {
 				throw new Error(
