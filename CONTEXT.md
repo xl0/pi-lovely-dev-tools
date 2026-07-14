@@ -21,7 +21,7 @@ Extension-defined gating or result transformation applied to an **Agent Tool Cal
 _Avoid_: tool hook, permission hook
 
 **Effective LLM Context**:
-The current branch's resolved message sequence that Pi builds for the model after branch traversal and compaction, excluding this extension's hidden diagnostic messages.
+The current branch's resolved message sequence that Pi builds for the model after branch traversal and compaction. Display-only custom entries do not participate.
 _Avoid_: session history, context state, full transcript
 
 **Context Read Map**:
@@ -72,7 +72,7 @@ _Avoid_: second TUI, nested terminal
 - Nested startup diagnostics are surfaced to help explain **Manual Tool Run** backend mismatches.
 - A **Manual Tool Run** uses exactly one **Nested Execution Session**.
 - A **Nested Execution Session** is single-use and must not be cached across **Manual Tool Runs**.
-- A **Nested Execution Session** does not persist session history; the outer session stores only the displayed **Manual Tool Run** message.
+- A **Nested Execution Session** does not persist session history; the outer session stores only the displayed **Manual Tool Run** entry.
 - A **Nested Execution Session** uses muted UI during startup and **Bridged Tool UI** during selected tool execution.
 - A manually run tool receives the **Nested Execution Session** context, not the outer command context; only UI interaction is bridged outward.
 - Side effects emitted through nested `pi.sendMessage` / `pi.sendUserMessage` stay inside the **Nested Execution Session** and do not affect the outer session.
@@ -86,14 +86,14 @@ _Avoid_: second TUI, nested terminal
 - Image results remain structured image blocks; text image indicators are display fallbacks only and are omitted when the inline image is rendered.
 - When an image result cannot be rendered inline, the original image bytes are saved to `/tmp` and the fallback text points to that file.
 - Saved fallback image files are left for the OS temp cleanup rather than tracked or deleted by the extension.
-- The outer **Manual Tool Run** message records image fallback paths so reloaded sessions retain the display context.
+- The outer **Manual Tool Run** entry records image fallback paths so reloaded sessions retain the display context.
 - The **Manual Tool Runner** may require current Pi helper exports and fail to load on stale Pi installs.
 - The **Context Read Map** requires Pi's structured system prompt options API to inspect **Startup Context Files** and **Advertised Skills**.
 - A **Manual Tool Run** only guarantees execution for **Static Startup Tools**; tools added dynamically during the current session may be visible but fail explicitly.
 - Extension CLI flags are part of startup state; nested execution mirrors them so `pi.getFlag()`-dependent tools behave like the outer session.
-- The **Effective LLM Context** excludes hidden **Manual Tool Run** messages.
+- **Manual Tool Run** custom entries do not participate in the **Effective LLM Context**.
 - A **Context Read Map** ignores context mutations made by other extensions.
-- A **Context Read Map** is displayed as a custom message and filtered out of the **Effective LLM Context**.
+- A **Context Read Map** is displayed as a custom entry, which does not participate in the **Effective LLM Context**.
 - A **Context Read Map** lists **Startup Context Files** and **Advertised Skills** before files known through read-tool evidence.
 - A **Context Read Map** maps an **Advertised Skill** to its **Skill Metadata Lines** and colors them like other system-prompt file content.
 - A **Context Read Map** maps a **Loaded Skill Body** to the body lines of its skill file, excluding frontmatter.

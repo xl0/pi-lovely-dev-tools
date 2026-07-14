@@ -1,6 +1,6 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent"
 import { Box, Text } from "@earendil-works/pi-tui"
-import { LLM_STATS_MESSAGE_TYPE } from "./messages"
+import { LLM_STATS_ENTRY_TYPE } from "./entries"
 import { isRecord } from "./schema"
 
 type LlmStatsRow = {
@@ -17,7 +17,7 @@ type LlmStatsRow = {
 	tools: string
 }
 
-type LlmStatsDetails = {
+type LlmStatsData = {
 	rows: LlmStatsRow[]
 }
 
@@ -124,8 +124,8 @@ function formatRows(rows: LlmStatsRow[], theme: Theme): string {
 	return [header, ...body].join("\n")
 }
 
-function renderStats(details: unknown, theme: Theme) {
-	const stats = isRecord(details) ? (details as { rows?: unknown }) : undefined
+function renderStats(data: unknown, theme: Theme) {
+	const stats = isRecord(data) ? (data as { rows?: unknown }) : undefined
 	const rows = Array.isArray(stats?.rows) ? (stats.rows as LlmStatsRow[]) : []
 	const box = new Box(1, 1, value => theme.bg("customMessageBg", value))
 	box.addChild(new Text(`${theme.fg("accent", theme.bold("LLM stats"))}\n\n${formatRows(rows, theme)}`, 0, 0))
@@ -133,7 +133,7 @@ function renderStats(details: unknown, theme: Theme) {
 }
 
 export function registerLlmStatsCommand(pi: ExtensionAPI) {
-	pi.registerMessageRenderer(LLM_STATS_MESSAGE_TYPE, (message, _state, theme) => renderStats(message.details, theme))
+	pi.registerEntryRenderer(LLM_STATS_ENTRY_TYPE, (entry, _state, theme) => renderStats(entry.data, theme))
 
 	pi.registerCommand("llm-stats", {
 		description: "Show per-call token usage for assistant responses in the current branch.",
@@ -175,7 +175,7 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 				lastAgentTimestamp = agentTimestamp
 				previousMessage = message
 			}
-			pi.sendMessage({ customType: LLM_STATS_MESSAGE_TYPE, content: "", display: true, details: { rows } satisfies LlmStatsDetails })
+			pi.appendEntry(LLM_STATS_ENTRY_TYPE, { rows } satisfies LlmStatsData)
 		}
 	})
 }

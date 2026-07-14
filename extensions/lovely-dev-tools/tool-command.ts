@@ -24,7 +24,7 @@ import {
 	visibleWidth
 } from "@earendil-works/pi-tui"
 import { editToolArgs } from "./arg-editor"
-import { type ImageFallback, isRunToolDetails, RUN_TOOL_MESSAGE_TYPE, type RunToolDetails } from "./messages"
+import { type ImageFallback, isRunToolData, RUN_TOOL_ENTRY_TYPE, type RunToolData } from "./entries"
 import { asSchema, coerceArgValue, formatToolArgs, type Schema } from "./schema"
 import { createToolBackend } from "./tool-backend"
 
@@ -241,19 +241,19 @@ function flatToolArgs(parametersSchema: unknown, values: string[]): Record<strin
 }
 
 export function registerToolCommand(pi: ExtensionAPI) {
-	pi.registerMessageRenderer(RUN_TOOL_MESSAGE_TYPE, (message, _state, theme) => {
-		const details = isRunToolDetails(message.details) ? message.details : undefined
-		if (!details) {
+	pi.registerEntryRenderer(RUN_TOOL_ENTRY_TYPE, (entry, _state, theme) => {
+		const data = isRunToolData(entry.data) ? entry.data : undefined
+		if (!data) {
 			const box = new Box(1, 1, value => theme.bg("customMessageBg", value))
 			box.addChild(new Text("Tool run", 0, 0))
 			return box
 		}
-		const callLine = `Tool: ${theme.fg("toolTitle", theme.bold(`${details.toolName}(${formatToolArgs(details.toolArgs)})`))}`
-		const output = resultText(details.result, details.imageFallbacks)
+		const callLine = `Tool: ${theme.fg("toolTitle", theme.bold(`${data.toolName}(${formatToolArgs(data.toolArgs)})`))}`
+		const output = resultText(data.result, data.imageFallbacks)
 		const body = output ? `${callLine}\n\n${theme.fg("toolOutput", output)}` : callLine
-		const box = new Box(1, 1, value => theme.bg(details.isError ? "toolErrorBg" : "toolSuccessBg", value))
+		const box = new Box(1, 1, value => theme.bg(data.isError ? "toolErrorBg" : "toolSuccessBg", value))
 		box.addChild(new Text(body, 0, 0))
-		const images = imageParts(details.result).filter(image => canRenderImage(image.mimeType))
+		const images = imageParts(data.result).filter(image => canRenderImage(image.mimeType))
 		if (images.length === 0) return box
 		const container = new Container()
 		container.addChild(box)
@@ -398,12 +398,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 				} catch (error) {
 					ctx.ui.notify(`Could not save image fallback: ${error instanceof Error ? error.message : String(error)}`, "warning")
 				}
-				pi.sendMessage({
-					customType: RUN_TOOL_MESSAGE_TYPE,
-					content: "",
-					display: true,
-					details: { toolName, toolArgs, toolCallId, result, isError, imageFallbacks } satisfies RunToolDetails
-				})
+				pi.appendEntry(RUN_TOOL_ENTRY_TYPE, { toolName, toolArgs, toolCallId, result, isError, imageFallbacks } satisfies RunToolData)
 				return
 			}
 		}

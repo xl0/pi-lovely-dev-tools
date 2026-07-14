@@ -32,7 +32,7 @@ Examples:
 
 Pi extensions can see tool schemas, but not executable tool definitions. For each Manual Tool Run this command creates a short-lived in-memory Nested Execution Session using Pi SDK, mirrors startup extensions/flags, resolves the selected executable tool there, runs it directly, then disposes the nested session.
 
-The outer session owns selection, argument editing, pending UI, final display, and hidden-from-context messages. Manual Tool Runs intentionally bypass Agent Tool Policy hooks.
+The outer session owns selection, argument editing, pending UI, final display, and display-only custom entries. Manual Tool Runs intentionally bypass Agent Tool Policy hooks.
 
 ### `/show-sysprompt`
 
@@ -40,13 +40,13 @@ Show the current rendered system prompt and active tool schemas. Use this to bet
 
 ### `/show-context`
 
-Show a visual token breakdown and file coverage map for the current model context. Token estimates split the prompt prefix and effective messages into system prompt, context files, advertised/loaded skills, tool definitions, user/assistant content, thinking, tool calls/results (cumulative and per tool), compactions, branch summaries, shell runs, custom messages, and media. The file map includes startup context files, advertised skill metadata, loaded skill bodies, and `read` tool results that survived compaction. The message is visible in chat and hidden from LLM context.
+Show a visual token breakdown and file coverage map for the current model context. Token estimates split the prompt prefix and effective messages into system prompt, context files, advertised/loaded skills, tool definitions, user/assistant content, thinking, tool calls/results (cumulative and per tool), compactions, branch summaries, shell runs, custom messages, and media. The file map includes startup context files, advertised skill metadata, loaded skill bodies, and `read` tool results that survived compaction. The result is a display-only custom entry.
 
 ![Context read map](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/show-context.png)
 
 ### `/llm-stats`
 
-Show one row per completed assistant/LLM call in the current branch, with elapsed time since the previous agent message as `+Ns` (or the entry timestamp as `hh:mm:ss` when none), initiation source, and prompt-side tokens rendered as `fresh + cacheR = input` or `fresh + cacheR + cacheW = input` when cache writes are present. `cacheR` shrinkage versus the previous row is highlighted, red when it drops by more than 50%. The message is visible in chat and hidden from LLM context.
+Show one row per completed assistant/LLM call in the current branch, with elapsed time since the previous agent message as `+Ns` (or the entry timestamp as `hh:mm:ss` when none), initiation source, and prompt-side tokens rendered as `fresh + cacheR = input` or `fresh + cacheR + cacheW = input` when cache writes are present. `cacheR` shrinkage versus the previous row is highlighted, red when it drops by more than 50%. The result is a display-only custom entry.
 
 ![Context read map](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/llm-stats.png)
 

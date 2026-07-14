@@ -7,8 +7,8 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 - `package.json`: npm/pi package manifest for “Pi extension package with interactive debugging helpers.” Pi loads `./extensions` and links `assets/demo.mp4` through `pi.video` using a raw GitHub URL. `assets/` is intentionally excluded from published npm files. Peer/dev deps include `@earendil-works/pi-ai` for direct `validateToolArguments()` imports.
 - `CONTEXT.md`: domain language for Manual Tool Runs, the Manual Tool Runner, Agent Tool Calls, Nested Execution Sessions, and Bridged Tool UI.
 - `docs/adr/0001-manual-tool-runner-stays-extension.md`: decision to keep `/tool` as an extension and use a nested SDK session for execution.
-- `extensions/lovely-dev-tools/index.ts`: small extension entrypoint. Registers command modules and hidden-message filters.
-- `extensions/lovely-dev-tools/messages.ts`: custom message type constants, hidden message set, `/tool` message details guard.
+- `extensions/lovely-dev-tools/index.ts`: small extension entrypoint. Registers command modules.
+- `extensions/lovely-dev-tools/entries.ts`: display-only custom entry type constants and `/tool` entry data guard.
 - `extensions/lovely-dev-tools/schema.ts`: shared JSON-schema helpers for defaults, enum/type display, value coercion, and argument formatting.
 - `extensions/lovely-dev-tools/arg-editor.ts`: schema-driven interactive `/tool` argument editor. Depends only on extension UI plus tool name/description/schema metadata, not the full command context.
 - `extensions/lovely-dev-tools/tool-command.ts`: `/tool` selector, flat arg parsing, focused pending run component, result/image rendering.
@@ -25,13 +25,11 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 
 ### `/tool`
 
-`/tool [tool_name] [flat args...]` waits for idle, selects a tool with a searchable inline selector when needed, edits args in an inline TUI when flat args are not supplied, executes the tool, then appends one displayed custom message. Tool selector search and `/tool <tab>` autocomplete match tool names only. Unknown tool names pre-seed the selector search. Inactive tools are visible and runnable manually; active/inactive only marks LLM availability.
+`/tool [tool_name] [flat args...]` waits for idle, selects a tool with a searchable inline selector when needed, edits args in an inline TUI when flat args are not supplied, executes the tool, then appends one displayed custom entry. Tool selector search and `/tool <tab>` autocomplete match tool names only. Unknown tool names pre-seed the selector search. Inactive tools are visible and runnable manually; active/inactive only marks LLM availability.
 
 Flat args are assigned to top-level schema properties in schema order by a schema-only parser; shell-style quotes preserve spaces and empty strings. Example: `/tool read file.txt 10 20`.
 
-Custom message type: `lovely-dev-tools.run-tool` with empty `content` and `details` containing `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, and optional `imageFallbacks`.
-
-The empty `content` avoids accidental context pollution if the extension is later unloaded. The `context` hook filters these custom messages out of LLM context while keeping them visible in the TUI/session.
+Custom entry type: `lovely-dev-tools.run-tool` with `data` containing `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, and optional `imageFallbacks`. Pi custom entries are display-only and never enter LLM context.
 
 ## Argument editor
 
@@ -68,7 +66,7 @@ While running, a focused custom component shows the pending call, Esc abort hint
 
 ### `/show-context`
 
-`/show-context` waits for idle, computes a snapshot from Pi's rendered/structured system prompt, active tool metadata, `buildSessionContext()` messages, and context usage meter, then emits one displayed custom message hidden from LLM context. The message `content` is empty; render data lives in `details` to avoid accidental context pollution if the extension is later unloaded. It first renders a responsive Context Token Breakdown, then a Context Read Map.
+`/show-context` waits for idle, computes a snapshot from Pi's rendered/structured system prompt, active tool metadata, `buildSessionContext()` messages, and context usage meter, then appends one display-only custom entry. It first renders a responsive Context Token Breakdown, then a Context Read Map.
 
 The token breakdown uses Pi's conservative `chars / 4` convention and 1,200 tokens per image. Prompt-prefix rows separate base system text, startup context files, advertised skills, and active tool definitions. Effective-message rows separate user text, loaded skill bodies, assistant text/thinking, tool calls/results, compaction summaries, branch summaries, user shell runs, custom messages, and media. Tool-call and tool-result rows retain cumulative totals and add uncolored per-tool child rows rendered as a Unicode box-drawing tree with muted numeric columns aligned to their parent row, while the cumulative bar keeps calls and results as whole category segments. The bar spans the active model's full context window, with unused capacity left as a dim track. Rows show counts, estimated tokens, percentages, and Pi's context meter when available. Provider framing/tokenizer overhead is explicitly excluded; the meter is displayed separately rather than forced to reconcile with the decomposition. Like the read map, it does not apply other extensions' context-hook mutations or provider-payload rewrites.
 
@@ -76,17 +74,17 @@ The Context Read Map renders one row per file, with context files first, adverti
 
 Evidence kinds are startup context file ranges, advertised skill frontmatter metadata, `/skill:name` loaded skill body ranges, and successful `read` tool results matched by `toolCallId`. Media-producing `read` results are treated as whole-file reads and rendered as a one-cell file. Compacted-away reads naturally disappear because collection uses the built model context, not raw branch history. File line counts are queried at command execution; missing files remain visible using evidence range length and a warning marker. Skill body detection uses Pi's `parseSkillBlock()` on user messages only, so assistant/tool quoted skill XML is ignored.
 
-Rendering uses 10 lines per cell with half-cell braille resolution (left column for lines 1-5, right column for 6-10), no cell cap, count glyphs (`ˍ` unread, then bottom-up rows up to `⣿` for 4+ reads per half), and media read cells fill both braille columns because lines do not apply. The renderer uses default terminal background overall; only bar cells use `selectedBg` as a track background. Layout is computed from the component render width so existing messages adapt when the terminal is resized. Startup context and advertised skills use `borderAccent`, injected skill bodies use `accent`, and read-tool evidence uses recency coloring. Terminals at least 100 columns wide use a fixed 50-column middle-truncated filename column with aligned bars; filenames carry OSC8 `file://` links to full absolute paths on the visible path text only, and non-empty bar cells carry OSC8 links to the first line represented by that cell. Narrow terminals put left-aligned bars directly under left-aligned filenames.
+Rendering uses 10 lines per cell with half-cell braille resolution (left column for lines 1-5, right column for 6-10), no cell cap, count glyphs (`ˍ` unread, then bottom-up rows up to `⣿` for 4+ reads per half), and media read cells fill both braille columns because lines do not apply. The renderer uses default terminal background overall; only bar cells use `selectedBg` as a track background. Layout is computed from the component render width so existing entries adapt when the terminal is resized. Startup context and advertised skills use `borderAccent`, injected skill bodies use `accent`, and read-tool evidence uses recency coloring. Terminals at least 100 columns wide use a fixed 50-column middle-truncated filename column with aligned bars; filenames carry OSC8 `file://` links to full absolute paths on the visible path text only, and non-empty bar cells carry OSC8 links to the first line represented by that cell. Narrow terminals put left-aligned bars directly under left-aligned filenames.
 
 ### `/llm-stats`
 
-`/llm-stats` waits for idle, scans `ctx.sessionManager.getBranch()` for finalized assistant message entries with `usage`, and emits one displayed custom message hidden from LLM context. Each row represents one assistant/LLM call, not one tool call. Prompt-side tokens render as `fresh + cacheR = input`, or `fresh + cacheR + cacheW = input` when cache writes are present. `fresh` is `usage.input`, `cacheR` is `usage.cacheRead`, and `cacheW` is `usage.cacheWrite`. Rows also show elapsed time since the previous assistant/agent message as `+Ns` (or the entry timestamp as `hh:mm:ss` when no previous assistant exists), `provider/model`, inferred start (`user`, `tools`, or `other`), output tokens, stop reason, and comma-separated tool calls or `-`. `cacheR` shrinkage versus the previous row is highlighted warning yellow, or error red when it drops by more than 50%.
+`/llm-stats` waits for idle, scans `ctx.sessionManager.getBranch()` for finalized assistant message entries with `usage`, and appends one display-only custom entry. Each row represents one assistant/LLM call, not one tool call. Prompt-side tokens render as `fresh + cacheR = input`, or `fresh + cacheR + cacheW = input` when cache writes are present. `fresh` is `usage.input`, `cacheR` is `usage.cacheRead`, and `cacheW` is `usage.cacheWrite`. Rows also show elapsed time since the previous assistant/agent message as `+Ns` (or the entry timestamp as `hh:mm:ss` when no previous assistant exists), `provider/model`, inferred start (`user`, `tools`, or `other`), output tokens, stop reason, and comma-separated tool calls or `-`. `cacheR` shrinkage versus the previous row is highlighted warning yellow, or error red when it drops by more than 50%.
 
 ### `/show-sysprompt`
 
-`/show-sysprompt` waits for idle, then emits two displayed custom messages:
+`/show-sysprompt` waits for idle, then appends two display-only custom entries:
 
 - rendered system prompt from `ctx.getSystemPrompt()`
 - active tool schemas from `pi.getAllTools()` filtered by `pi.getActiveTools()`
 
-Both messages have empty `content`, store display text in `details`, use collapsible custom renderers, are filtered out of LLM context, and are skipped in session tree preparation. Tool schema formatting shows each active tool, its top-level parameters, required/optional status, inferred schema type, and parameter description when present.
+Both entries store display text in `data`, use collapsible custom renderers, never enter LLM context, and are hidden from the default session tree view. Tool schema formatting shows each active tool, its top-level parameters, required/optional status, inferred schema type, and parameter description when present.
