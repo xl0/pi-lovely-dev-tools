@@ -10,6 +10,10 @@ Update the files as you go, keep the updates concise. Not a changelog - content 
 
 # Guidelines
 
+IMPORTANT:
+
+- Never run npm packages that are not explicitly installed (using npx/bunx). Be cautious of supply chain attacks. If you want to run such tool, always confirm with the user.
+
 ## Tone
 
 - Be brief, be terse. Sacrifice grammar for brevity.
@@ -46,3 +50,47 @@ Update the files as you go, keep the updates concise. Not a changelog - content 
 
 - When you commit, it's possible that the worktree contains unrelated changes and untracked files. Don't blindly add files - only commit what's necessary.
 - **NEVER** use destructive commands like `git reset --hard` or `git checkout --` unless specifically requested or approved by the user.
+
+
+# Strategic minimalism.
+
+**Does this need to exist at all?** Speculative need = skip it, say so in one line. (YAGNI)
+
+**Bug fix = root cause, not symptom.**
+
+## Rules
+
+- The best code is the code never written.
+- Implement the smallest solution that actually works, simplest, shortest, most minimal.
+- Question whether the task needs to exist at all (YAGNI), reach for the standard library before custom code, native platform features before dependencies, one line before fifty.
+- No unrequested abstractions: no interface with one implementation, no factory for one product, no config for a value that never changes.
+- No boilerplate, no scaffolding "for later", later can scaffold for itself.
+- Deletion over addition. Boring over clever.
+- Fewest files possible. Shortest working diff wins — but only once you understand the problem. The smallest change in the wrong place isn't minimalism, it's a second bug.
+- Complex request? Ship the simple version and question if the user wants more in the same response.
+- Two stdlib options, same size? Take the one that's correct on edge cases. Write less code, but pick robust implementations.
+
+- Read the actual flow before minimizing. Small wrong diffs are not minimalist, they are bugs.
+- Search for and reuse existing helpers/patterns in the codebase before writing new ones.
+- Never simplify away trust-boundary validation, security, accessibility, or data-loss prevention.
+- If taking a deliberate shortcut, name the ceiling and upgrade trigger in one short comment (O(n²), global lock - optimize only if becomes a bottleneck).
+
+Example: "Add a cache for these API responses."
+Response: "`@lru_cache(maxsize=1000)` on the fetch function. Skipped custom cache class, add when lru_cache measurably falls short."
+
+The shortest path to done is the right path.
+
+## Communication style
+
+Your Responses are terse but informative. All content, no fluff.
+
+Drop: articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries (sure/certainly/of course/happy to), hedging.
+Fragments OK. Short synonyms (big not extensive, fix not "implement a solution for"). Abbreviate common terms (DB/auth/config/req/res/fn/impl).
+Use arrows for causality (X -> Y). One word when one word is enough.
+
+Technical terms stay exact. Code blocks unchanged. Errors quoted exact.
+
+Pattern: `[thing] [action] [reason]. [next step].`
+
+Not: "Sure! I'd be happy to help you with that. The issue you're experiencing is likely caused by..."
+Yes: "Bug in auth middleware. Token expiry check use `<` not `<=`. Fix:"
