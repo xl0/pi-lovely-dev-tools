@@ -10,7 +10,7 @@ import {
 	type SessionEntry
 } from "@earendil-works/pi-coding-agent"
 import { Box, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui"
-import { CONTEXT_READ_MAP_MESSAGE_TYPE, HIDDEN_MESSAGE_TYPES } from "./messages"
+import { CONTEXT_READ_MAP_ENTRY_TYPE } from "./entries"
 import { isRecord } from "./schema"
 
 type EvidenceKind = "startup-context" | "advertised-skill" | "loaded-skill-body" | "tool-read"
@@ -80,7 +80,7 @@ type ContextTokenBreakdown = {
 	rows: TokenBreakdownRow[]
 }
 
-type ContextReadMapDetails = {
+type ContextReadMapData = {
 	linesPerCell: number
 	tokens?: ContextTokenBreakdown
 	files: FileEvidence[]
@@ -215,7 +215,6 @@ function collectTokenBreakdown(
 
 	for (const message of messages) {
 		if (!isRecord(message)) continue
-		if (message.role === "custom" && typeof message.customType === "string" && HIDDEN_MESSAGE_TYPES.has(message.customType)) continue
 
 		if (message.role === "user") {
 			const { textChars, images } = contentSize(message.content)
@@ -384,7 +383,7 @@ function readCallFromBlock(block: unknown): ReadCall | undefined {
 	return call
 }
 
-function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): ContextReadMapDetails {
+function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): ContextReadMapData {
 	const cwd = ctx.cwd
 	const files = new Map<string, FileEvidence>()
 	// ordinal = evidence recency; order = first-seen file order for stable groups.
@@ -710,7 +709,7 @@ function renderTokenBreakdown(tokens: ContextTokenBreakdown, width: number, them
 	return lines
 }
 
-function renderSnapshot(details: ContextReadMapDetails, width: number, theme: Theme) {
+function renderSnapshot(details: ContextReadMapData, width: number, theme: Theme) {
 	const tokenLines = details.tokens ? renderTokenBreakdown(details.tokens, width, theme) : []
 	if (details.files.length === 0) return [...tokenLines, "No file-backed context evidence."].join("\n")
 	const maxOrdinal = Math.max(0, ...details.files.flatMap(file => file.sources.map(source => source.ordinal)))
@@ -744,15 +743,15 @@ function renderSnapshot(details: ContextReadMapDetails, width: number, theme: Th
 	return lines.join("\n")
 }
 
-function isContextReadMapDetails(value: unknown): value is ContextReadMapDetails {
+function isContextReadMapData(value: unknown): value is ContextReadMapData {
 	if (!isRecord(value)) return false
 	const details = value as { files?: unknown; linesPerCell?: unknown }
 	return Array.isArray(details.files) && typeof details.linesPerCell === "number"
 }
 
 export function registerShowContextCommand(pi: ExtensionAPI) {
-	pi.registerMessageRenderer<ContextReadMapDetails>(CONTEXT_READ_MAP_MESSAGE_TYPE, (message, _options, theme) => {
-		const details = isContextReadMapDetails(message.details) ? message.details : undefined
+	pi.registerEntryRenderer<ContextReadMapData>(CONTEXT_READ_MAP_ENTRY_TYPE, (entry, _options, theme) => {
+		const details = isContextReadMapData(entry.data) ? entry.data : undefined
 		const box = new Box(1, 1)
 		if (details) {
 			box.addChild({
@@ -770,7 +769,7 @@ export function registerShowContextCommand(pi: ExtensionAPI) {
 		async handler(_args, ctx) {
 			await ctx.waitForIdle()
 			const details = collectContextReadMap(pi, ctx)
-			pi.sendMessage({ customType: CONTEXT_READ_MAP_MESSAGE_TYPE, content: "", display: true, details })
+			pi.appendEntry(CONTEXT_READ_MAP_ENTRY_TYPE, details)
 		}
 	})
 }

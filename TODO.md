@@ -7,7 +7,7 @@
 Implemented:
 
 - [x] selector, flat args, schema arg editor
-- [x] hidden Manual Tool Run custom messages
+- [x] display-only Manual Tool Run custom entries
 - [x] nested execution backend via `createAgentSessionServices()` + `createAgentSessionFromServices()`
 - [x] startup `-e` / `--extension` / `--no-extensions` / extension flag mirroring via `parseArgs(process.argv.slice(2))`
 - [x] muted nested startup UI and bridged execution UI

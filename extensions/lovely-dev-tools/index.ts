@@ -1,6 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { registerLlmStatsCommand } from "./llm-stats"
-import { registerHiddenMessageFilters } from "./messages"
 import { registerShowContextCommand } from "./show-context"
 import { registerShowSyspromptCommand } from "./show-sysprompt"
 import { registerToolCommand } from "./tool-command"
@@ -10,5 +9,4 @@ export default function lovelyDevToolsExtension(pi: ExtensionAPI) {
 	registerShowSyspromptCommand(pi)
 	registerShowContextCommand(pi)
 	registerLlmStatsCommand(pi)
-	registerHiddenMessageFilters(pi)
 }

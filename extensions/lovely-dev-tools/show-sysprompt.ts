@@ -1,6 +1,6 @@
 import type { ExtensionAPI, Theme, ToolInfo } from "@earendil-works/pi-coding-agent"
 import { Box, Text } from "@earendil-works/pi-tui"
-import { SYSTEM_PROMPT_MESSAGE_TYPE, TOOL_SCHEMAS_MESSAGE_TYPE } from "./messages"
+import { SYSTEM_PROMPT_ENTRY_TYPE, TOOL_SCHEMAS_ENTRY_TYPE } from "./entries"
 import { asSchema, formatSchemaType, schemaStringArray } from "./schema"
 
 function formatCollapsibleMessage(title: string, content: string, expanded: boolean, theme: Theme) {
@@ -14,12 +14,12 @@ function formatCollapsibleMessage(title: string, content: string, expanded: bool
 	return box
 }
 
-type CollapsibleMessageDetails = {
+type CollapsibleEntryData = {
 	content: string
 }
 
-function detailsContent(details: unknown): string {
-	const content = (details as { content?: unknown } | undefined)?.content
+function entryContent(data: unknown): string {
+	const content = (data as { content?: unknown } | undefined)?.content
 	return typeof content === "string" ? content : ""
 }
 
@@ -47,11 +47,11 @@ function formatToolSchemas(tools: ToolInfo[]): string {
 }
 
 export function registerShowSyspromptCommand(pi: ExtensionAPI) {
-	pi.registerMessageRenderer(SYSTEM_PROMPT_MESSAGE_TYPE, (message, { expanded }, theme) =>
-		formatCollapsibleMessage("System prompt", detailsContent(message.details), expanded, theme)
+	pi.registerEntryRenderer(SYSTEM_PROMPT_ENTRY_TYPE, (entry, { expanded }, theme) =>
+		formatCollapsibleMessage("System prompt", entryContent(entry.data), expanded, theme)
 	)
-	pi.registerMessageRenderer(TOOL_SCHEMAS_MESSAGE_TYPE, (message, { expanded }, theme) =>
-		formatCollapsibleMessage("Available tools", detailsContent(message.details), expanded, theme)
+	pi.registerEntryRenderer(TOOL_SCHEMAS_ENTRY_TYPE, (entry, { expanded }, theme) =>
+		formatCollapsibleMessage("Available tools", entryContent(entry.data), expanded, theme)
 	)
 
 	pi.registerCommand("show-sysprompt", {
@@ -59,20 +59,10 @@ export function registerShowSyspromptCommand(pi: ExtensionAPI) {
 		async handler(_args, ctx) {
 			await ctx.waitForIdle()
 			const activeTools = new Set(pi.getActiveTools())
-			pi.sendMessage({
-				customType: SYSTEM_PROMPT_MESSAGE_TYPE,
-				content: "",
-				display: true,
-				details: { content: ctx.getSystemPrompt() } satisfies CollapsibleMessageDetails
-			})
-			pi.sendMessage({
-				customType: TOOL_SCHEMAS_MESSAGE_TYPE,
-				content: "",
-				display: true,
-				details: {
-					content: formatToolSchemas(pi.getAllTools().filter(tool => activeTools.has(tool.name)))
-				} satisfies CollapsibleMessageDetails
-			})
+			pi.appendEntry(SYSTEM_PROMPT_ENTRY_TYPE, { content: ctx.getSystemPrompt() } satisfies CollapsibleEntryData)
+			pi.appendEntry(TOOL_SCHEMAS_ENTRY_TYPE, {
+				content: formatToolSchemas(pi.getAllTools().filter(tool => activeTools.has(tool.name)))
+			} satisfies CollapsibleEntryData)
 		}
 	})
 }
