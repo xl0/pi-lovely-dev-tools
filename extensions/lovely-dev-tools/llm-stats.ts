@@ -57,12 +57,11 @@ function toolNames(content: unknown): string {
 	return names.length === 0 ? "-" : names.join(",")
 }
 
-function callInitiator(previousMessages: unknown[]): string {
-	const last = previousMessages.at(-1)
-	if (!isRecord(last)) return "other"
-	const lastMessage = last as { role?: unknown }
-	if (lastMessage.role === "user") return "user"
-	if (lastMessage.role !== "toolResult") return "other"
+function callInitiator(previousMessage: unknown): string {
+	if (!isRecord(previousMessage)) return "other"
+	const role = (previousMessage as { role?: unknown }).role
+	if (role === "user") return "user"
+	if (role !== "toolResult") return "other"
 	return "tools"
 }
 
@@ -140,10 +139,9 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 		description: "Show per-call token usage for assistant responses in the current branch.",
 		async handler(_args, ctx) {
 			await ctx.waitForIdle()
-			let index = 1
 			let lastAgentTimestamp: number | undefined
 			const rows: LlmStatsRow[] = []
-			const previousMessages: unknown[] = []
+			let previousMessage: unknown
 			for (const entry of ctx.sessionManager.getBranch()) {
 				if (entry.type !== "message") continue
 				const message = entry.message
@@ -152,7 +150,7 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 				const agentTimestamp = isAssistant ? timestampValue(entry.timestamp) : undefined
 				if (!isAssistant || !isRecord(message.usage)) {
 					if (isAssistant) lastAgentTimestamp = agentTimestamp
-					previousMessages.push(message)
+					previousMessage = message
 					continue
 				}
 				const usage = message.usage
@@ -162,10 +160,10 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 				const input = fresh + cacheRead + cacheWrite
 				const output = numberValue(usage.output)
 				rows.push({
-					index: index++,
+					index: rows.length + 1,
 					delta: deltaText(agentTimestamp, lastAgentTimestamp),
 					model: `${typeof message.provider === "string" ? message.provider : "?"}/${typeof message.model === "string" ? message.model : "?"}`,
-					start: callInitiator(previousMessages),
+					start: callInitiator(previousMessage),
 					fresh,
 					cacheRead,
 					cacheWrite,
@@ -175,7 +173,7 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 					tools: toolNames(message.content)
 				})
 				lastAgentTimestamp = agentTimestamp
-				previousMessages.push(message)
+				previousMessage = message
 			}
 			pi.sendMessage({ customType: LLM_STATS_MESSAGE_TYPE, content: "", display: true, details: { rows } satisfies LlmStatsDetails })
 		}

@@ -9,7 +9,7 @@ Pi package `@xl0/pi-lovely-dev-tools`.
 - `docs/adr/0001-manual-tool-runner-stays-extension.md`: decision to keep `/tool` as an extension and use a nested SDK session for execution.
 - `extensions/lovely-dev-tools/index.ts`: small extension entrypoint. Registers command modules and hidden-message filters.
 - `extensions/lovely-dev-tools/messages.ts`: custom message type constants, hidden message set, `/tool` message details guard.
-- `extensions/lovely-dev-tools/schema.ts`: shared JSON-schema helpers for defaults, enum/type display, value coercion, argument formatting, and text wrapping.
+- `extensions/lovely-dev-tools/schema.ts`: shared JSON-schema helpers for defaults, enum/type display, value coercion, and argument formatting.
 - `extensions/lovely-dev-tools/arg-editor.ts`: schema-driven interactive `/tool` argument editor. Depends only on extension UI plus tool name/description/schema metadata, not the full command context.
 - `extensions/lovely-dev-tools/tool-command.ts`: `/tool` selector, flat arg parsing, focused pending run component, result/image rendering.
 - `extensions/lovely-dev-tools/tool-backend.ts`: single-use Nested Execution Session backend for Manual Tool Runs.

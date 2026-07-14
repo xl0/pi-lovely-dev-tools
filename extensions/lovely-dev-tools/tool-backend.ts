@@ -14,7 +14,6 @@ import {
 } from "@earendil-works/pi-coding-agent"
 
 export type ToolBackend = {
-	diagnostics: AgentSessionRuntimeDiagnostic[]
 	run(
 		toolName: string,
 		toolArgs: Record<string, unknown>,
@@ -78,7 +77,6 @@ export async function createToolBackend(ctx: ExtensionCommandContext, activeTool
 	const diagnostics = [...services.diagnostics]
 	const abort = new AbortController()
 	return {
-		diagnostics,
 		async run(toolName, toolArgs, toolCallId, onUpdate) {
 			const definition = created.session.getToolDefinition(toolName)
 			if (!definition) {
