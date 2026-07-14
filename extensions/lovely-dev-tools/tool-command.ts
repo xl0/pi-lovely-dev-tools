@@ -16,7 +16,6 @@ import {
 	Container,
 	fuzzyFilter,
 	getCapabilities,
-	getKeybindings,
 	Image,
 	Input,
 	Spacer,
@@ -30,7 +29,7 @@ import { asSchema, coerceArgValue, formatToolArgs, type Schema } from "./schema"
 import { createToolBackend } from "./tool-backend"
 
 async function selectTool(ctx: ExtensionCommandContext, tools: ToolInfo[], activeTools: Set<string>, initialQuery = "") {
-	return ctx.ui.custom<ToolInfo | undefined>((_tui, theme, _keybindings, done) => {
+	return ctx.ui.custom<ToolInfo | undefined>((_tui, theme, keybindings, done) => {
 		const listTheme = getSettingsListTheme()
 		const searchInput = new Input()
 		searchInput.setValue(initialQuery)
@@ -76,15 +75,15 @@ async function selectTool(ctx: ExtensionCommandContext, tools: ToolInfo[], activ
 			},
 			invalidate: () => searchInput.invalidate(),
 			handleInput: (data: string) => {
-				const kb = getKeybindings()
-				if (kb.matches(data, "tui.select.up")) {
+				if (keybindings.matches(data, "tui.select.up")) {
 					if (filteredTools.length === 0) return
 					selectedIndex = selectedIndex === 0 ? filteredTools.length - 1 : selectedIndex - 1
-				} else if (kb.matches(data, "tui.select.down")) {
+				} else if (keybindings.matches(data, "tui.select.down")) {
 					if (filteredTools.length === 0) return
 					selectedIndex = selectedIndex === filteredTools.length - 1 ? 0 : selectedIndex + 1
-				} else if (kb.matches(data, "tui.select.confirm") || kb.matches(data, "tui.input.submit")) done(filteredTools[selectedIndex])
-				else if (kb.matches(data, "tui.select.cancel")) done(undefined)
+				} else if (keybindings.matches(data, "tui.select.confirm") || keybindings.matches(data, "tui.input.submit"))
+					done(filteredTools[selectedIndex])
+				else if (keybindings.matches(data, "tui.select.cancel")) done(undefined)
 				else {
 					const sanitized = data.replace(/ /g, "")
 					if (!sanitized) return
@@ -403,7 +402,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 					customType: RUN_TOOL_MESSAGE_TYPE,
 					content: "",
 					display: true,
-					details: { toolName, toolArgs, toolCallId, result, isError, timestamp: Date.now(), imageFallbacks } satisfies RunToolDetails
+					details: { toolName, toolArgs, toolCallId, result, isError, imageFallbacks } satisfies RunToolDetails
 				})
 				return
 			}
