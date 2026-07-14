@@ -41,15 +41,12 @@ Show the current rendered system prompt and active tool schemas. Use this to bet
 ### `/show-context`
 
 Show a visual token breakdown and file coverage map for the current model context. Token estimates split the prompt prefix and effective messages into system prompt, context files, advertised/loaded skills, tool definitions, user/assistant content, thinking, tool calls/results (cumulative and per tool), compactions, branch summaries, shell runs, custom messages, and media. The file map includes startup context files, advertised skill metadata, loaded skill bodies, and `read` tool results that survived compaction. The result is a display-only custom entry.
-
 ![Context read map](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/show-context.png)
 
 ### `/llm-stats`
-
-Show one row per completed assistant/LLM call in the current branch, with elapsed time since the previous agent message as `+Ns` (or the entry timestamp as `hh:mm:ss` when none), initiation source, and prompt-side tokens rendered as `fresh + cacheR = input` or `fresh + cacheR + cacheW = input` when cache writes are present. `cacheR` shrinkage versus the previous row is highlighted, red when it drops by more than 50%. The result is a display-only custom entry.
+Show one row per completed assistant/LLM call in the current branch, with elapsed time since the previous agent message as `+Ns` (or the entry timestamp as `hh:mm:ss` when none), initiation source, and prompt-side tokens rendered as `fresh + cacheR = input` or `fresh + cacheR + cacheW = input` when cache writes are present. The entry timestamp is highlighted in red when it increases by more than 2x from the previous row. The result is a display-only custom entry.
 
 ![Context read map](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/llm-stats.png)
-
 ## Install
 
 ```bash
@@ -68,6 +65,8 @@ pi -e npm:@xl0/pi-lovely-dev-tools
 | --- | --- |
 | [Pi Lovely Web](https://github.com/xl0/pi-lovely-web) | `web_search`, `web_fetch`, `web_image` via Firecrawl, Exa, Tavily, Brave |
 | [Pi Lovely IDE](https://github.com/xl0/pi-lovely-ide) | IDE integration |
+| [Pi Lovely Comment](https://github.com/xl0/agent-files/tree/master/pi/packages/pi-lovely-comment) | open the last assistant message in your editor and sync edits back into the prompt |
+| [Pi Lovely Rename](https://github.com/xl0/agent-files/tree/master/pi/packages/pi-lovely-rename) | automatic and manual session naming |
 
 ---
 
