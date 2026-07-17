@@ -365,7 +365,23 @@ export function registerToolCommand(pi: ExtensionAPI) {
 									}
 								}
 							}
-							await backend?.dispose()
+							try {
+								await backend?.dispose()
+							} catch (error) {
+								outcome = {
+									isError: true,
+									result: {
+										...outcome.result,
+										content: [
+											...outcome.result.content,
+											{
+												type: "text",
+												text: `Nested Execution Session cleanup failed: ${error instanceof Error ? error.message : String(error)}`
+											}
+										]
+									}
+								}
+							}
 							finish(outcome)
 						})()
 						return {
