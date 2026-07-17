@@ -67,7 +67,8 @@ export async function createToolBackend(ctx: ExtensionCommandContext, activeTool
 		isAborted() {
 			return abort.signal.aborted
 		},
-		dispose() {
+		async dispose() {
+			await created.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" })
 			created.session.dispose()
 		}
 	}

@@ -25,6 +25,7 @@ Implemented:
 - [x] `/show-context` Context Read Map command
 - [x] `/show-context` visual context token breakdown
 - [x] `/llm-stats` per-call token usage command
+- [x] graceful Nested Execution Session shutdown before context invalidation
 
 ## Remaining work
 

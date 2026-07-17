@@ -72,6 +72,7 @@ _Avoid_: second TUI, nested terminal
 - Nested startup diagnostics are surfaced to help explain **Manual Tool Run** backend mismatches.
 - A **Manual Tool Run** uses exactly one **Nested Execution Session**.
 - A **Nested Execution Session** is single-use and must not be cached across **Manual Tool Runs**.
+- A **Nested Execution Session** emits `session_shutdown` and awaits extension cleanup before its context is invalidated.
 - A **Nested Execution Session** does not persist session history; the outer session stores only the displayed **Manual Tool Run** entry.
 - A **Nested Execution Session** uses muted UI during startup and **Bridged Tool UI** during selected tool execution.
 - A manually run tool receives the **Nested Execution Session** context, not the outer command context; only UI interaction is bridged outward.

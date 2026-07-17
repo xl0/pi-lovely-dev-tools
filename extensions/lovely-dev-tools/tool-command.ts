@@ -337,6 +337,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 							tui.requestRender()
 						}
 						void (async () => {
+							let outcome: Parameters<typeof finish>[0]
 							try {
 								backend = await createToolBackend(ctx, [...activeTools])
 								if (abortRequested) backend.abort()
@@ -349,9 +350,9 @@ export function registerToolCommand(pi: ExtensionAPI) {
 									isError = true
 									result = { content: [{ type: "text", text: "Manual Tool Run aborted." }], details: undefined }
 								}
-								finish({ result, isError })
+								outcome = { result, isError }
 							} catch (error) {
-								finish({
+								outcome = {
 									isError: true,
 									result: {
 										content: [
@@ -362,10 +363,10 @@ export function registerToolCommand(pi: ExtensionAPI) {
 										],
 										details: undefined
 									}
-								})
-							} finally {
-								backend?.dispose()
+								}
 							}
+							await backend?.dispose()
+							finish(outcome)
 						})()
 						return {
 							render: (width: number) => {
