@@ -1,90 +1,110 @@
 # Codebase
 
-Pi package `@xl0/pi-lovely-dev-tools`.
+Pi package `@xl0/pi-lovely-dev-tools`: extension commands for interactive debugging.
+Domain language lives in `CONTEXT.md`; `docs/adr/0001` explains why `/tool` stays an extension
+running through a nested SDK session.
 
 ## Structure
 
-- `package.json`: npm/pi package manifest for “Pi extension package with interactive debugging helpers.” Pi loads `./extensions` and links `assets/demo.mp4` through `pi.video` using a raw GitHub URL. `assets/` is intentionally excluded from published npm files. Peer/dev deps include `@earendil-works/pi-ai` for direct `validateToolArguments()` imports.
-- `CONTEXT.md`: domain language for Manual Tool Runs, the Manual Tool Runner, Agent Tool Calls, Nested Execution Sessions, and Bridged Tool UI.
-- `docs/adr/0001-manual-tool-runner-stays-extension.md`: decision to keep `/tool` as an extension and use a nested SDK session for execution.
-- `extensions/lovely-dev-tools/index.ts`: small extension entrypoint. Registers command modules.
-- `extensions/lovely-dev-tools/entries.ts`: display-only custom entry type constants and `/tool` entry data guard.
-- `extensions/lovely-dev-tools/schema.ts`: shared JSON-schema helpers for defaults, enum/type display, value coercion, and argument formatting.
-- `extensions/lovely-dev-tools/arg-editor.ts`: schema-driven interactive `/tool` argument editor. Depends only on extension UI plus tool name/description/schema metadata, not the full command context.
-- `extensions/lovely-dev-tools/tool-command.ts`: `/tool` selector, flat arg parsing, focused pending run component, result/image rendering.
-- `extensions/lovely-dev-tools/tool-backend.ts`: single-use Nested Execution Session backend for Manual Tool Runs.
-- `extensions/lovely-dev-tools/show-sysprompt.ts`: `/show-sysprompt` command and collapsible renderers.
-- `extensions/lovely-dev-tools/show-context.ts`: `/show-context` Context Read Map snapshot collection and renderer.
-- `extensions/lovely-dev-tools/llm-stats.ts`: `/llm-stats` per-assistant-call token usage table for the current branch.
-- `assets/demo.mp4`: source demo video kept in repo, not shipped in npm package.
-- `assets/demo.gif`: npm/GitHub-compatible README demo preview kept in repo, not shipped in npm package.
-- `assets/show-context.png`: README screenshot for `/show-context`, not shipped in npm package.
-- `tsconfig.json`, `biome.json`: strict TypeScript and Biome config.
+- `package.json`: pi manifest. Loads `./extensions`; `pi.video` links `assets/demo.mp4` via raw
+  GitHub URL; `assets/` stays in repo, not in the npm package. `@earendil-works/pi-ai` is a
+  peer/dev dep for direct `validateToolArguments()` imports.
+- `extensions/lovely-dev-tools/`
+  - `index.ts`: entrypoint, registers command modules.
+  - `entries.ts`: custom entry type constants, `/tool` entry data guard.
+  - `schema.ts`: JSON-schema helpers - defaults, enum/type display, coercion, arg formatting.
+  - `arg-editor.ts`: schema-driven arg editor; depends only on extension UI plus tool
+    name/description/schema, not the full command context.
+  - `tool-command.ts`: `/tool` selector, flat arg parsing, pending run component, result rendering.
+  - `tool-backend.ts`: single-use Nested Execution Session backend.
+  - `show-sysprompt.ts`, `show-context.ts`, `llm-stats.ts`: the other three commands.
 
-## `lovely-dev-tools`
+All four commands wait for idle and append display-only custom entries.
+Pi custom entries never enter LLM context.
 
-### `/tool`
+## `/tool`
 
-`/tool [tool_name] [flat args...]` waits for idle, selects a tool with a searchable inline selector when needed, edits args in an inline TUI when flat args are not supplied, executes the tool, then appends one displayed custom entry. Tool selector search and `/tool <tab>` autocomplete match tool names only. Unknown tool names pre-seed the selector search. Inactive tools are visible and runnable manually; active/inactive only marks LLM availability.
+`/tool [tool_name] [flat args...]`: searchable selector when no name given, inline arg editor when
+no flat args, then executes and appends one entry.
 
-Flat args are assigned to top-level schema properties in schema order by a schema-only parser; shell-style quotes preserve spaces and empty strings. Example: `/tool read file.txt 10 20`.
+- selector search and `<tab>` autocomplete match tool names only; unknown names pre-seed the search
+- inactive tools are runnable; active/inactive only marks LLM availability
+- flat args map to top-level schema properties in schema order, shell-style quotes preserved
+- entry type `lovely-dev-tools.run-tool`, `data`: `toolName`, `toolArgs`, `toolCallId`, `result`,
+  `isError`, optional `imageFallbacks`
 
-Custom entry type: `lovely-dev-tools.run-tool` with `data` containing `toolName`, `toolArgs`, `toolCallId`, `result`, `isError`, and optional `imageFallbacks`. Pi custom entries are display-only and never enter LLM context.
+### Argument editor
 
-## Argument editor
+`editToolArgs()` renders schema paths into rows and mutates a nested args object directly.
 
-`editToolArgs()` renders a schema-driven argument editor.
+- optional fields default to omitted (`[ ]`/`[x]` toggles); omitted is absent from final args and
+  distinct from empty string
+- required fields default from schema default/const/enum, else the simple type default
+- `+`/`-` insert/remove array items, also from child rows
+- booleans and enums cycle with Space; scalars edit inline, commit and validate on move-away/Enter
+- Escape returns to selection/cancel, Enter runs
 
-- object properties render as indented group rows; included objects expose child rows
-- optional fields/groups default to omitted and have `[ ]` / `[x]` include controls
-- required fields/groups default from schema default/const/enum or simple type defaults
-- arrays render as group rows with item counts
-- `+` on an array inserts at index 0; `+` on an item inserts after it; `-` removes items
-- array object items render as `[n]` rows with indented property rows
-- `+` / `-` array item shortcuts work from array rows and their child rows
-- booleans and enums/literal unions cycle with Space from the value cell
-- scalar leaves edit inline with a single-line `Input`; structured objects/arrays render as group rows
-- string drafts edit as raw text with decorative quotes around the input cell
-- tool description and selected-row schema/help are shown in a fixed-height top panel
+### Execution
 
-The editor mutates a nested args object directly from schema paths. Omitted fields/groups are absent from the final args. Scalar/JSON rows commit and validate when moving away or pressing Enter. Empty string and omitted are distinct.
+Each run creates a single-use nested SDK session (`createAgentSessionServices()` /
+`createAgentSessionFromServices()`, `SessionManager.inMemory(ctx.cwd)`) with muted startup UI,
+active tool names mirrored from the outer session, and bridged execution UI/mode.
+Startup extension mirroring parses `-e`/`--extension`/`--no-extensions` from Pi's exported
+`parseArgs(process.argv.slice(2))`.
 
-Escape returns to tool selection/cancel. Enter runs.
+The backend resolves via `session.getToolDefinition()`, applies `prepareArguments`, validates with
+`validateToolArguments()`, then calls `definition.execute(...)` with a nested extension context and
+a sticky abort signal. Intentionally bypasses Agent Tool Policy hooks.
 
-## Tool execution and rendering
+- Esc aborts, even before execution starts; aborts and thrown errors become `isError: true` entries
+- disposal awaits nested `session_shutdown` handlers before invalidating the nested context;
+  disposal failures mark the run errored without trapping the pending UI
 
-Tool execution creates a single-use nested SDK session with `createAgentSessionServices()` / `createAgentSessionFromServices()`, `SessionManager.inMemory(ctx.cwd)`, muted startup UI, active tool names mirrored from the outer session, and a bridged execution UI/mode from the outer session. The backend resolves the executable definition with `session.getToolDefinition()`, applies `prepareArguments`, validates with `validateToolArguments()`, then calls `definition.execute(...)` directly with a nested extension context and a sticky abort signal. The pending run is a focused `ctx.ui.custom()` component; Esc aborts that signal, including before execution starts. Aborted runs are displayed as error Manual Tool Runs. It intentionally bypasses Agent Tool Policy hooks. Thrown errors become text `AgentToolResult`s with `isError: true`. Disposal awaits nested `session_shutdown` handlers before invalidating the nested extension context; disposal failures mark the run errored without trapping the pending UI.
+### Result rendering
 
-Startup extension mirroring uses Pi's exported `parseArgs(process.argv.slice(2))` for `-e` / `--extension`, `--no-extensions`, and extension flag values.
+Text blocks render directly, other non-image blocks as `[type]` plus JSON.
+Image blocks are normalized from top-level or `source`-shaped data and rendered inline when
+supported, else saved to `/tmp/pi-tool-image-<uuid>.<ext>` (non-PNG through Pi's `convertToPng()`).
+Conversion/save failures degrade display only, never fail the run.
 
-While running, a focused custom component shows the pending call, Esc abort hint, and latest partial tool update when provided. On completion, a `lovely-dev-tools.run-tool` renderer shows the completed call and raw result output:
+## `/show-context`
 
-- errors use `toolErrorBg`
-- success uses `toolSuccessBg`
+Renders a Context Token Breakdown then a Context Read Map. Both are built from the *built model
+context* (`buildSessionContext()`), not raw branch history, so compacted-away reads disappear.
+Other extensions' context-hook mutations and provider-payload rewrites are not applied.
 
-`resultText()` renders text blocks directly and non-text/non-image blocks as `[type]` plus JSON details. Image result blocks are normalized from either top-level or `source`-shaped data, then render inline when supported; otherwise the original image bytes are saved under `/tmp/pi-tool-image-<uuid>.<ext>` and the text fallback points to that path. Non-PNG image blocks are converted with Pi's `convertToPng()` before storing results for Kitty-compatible terminals. Conversion/save failures are warnings and display degradation, not Manual Tool Run failures.
+### Token breakdown
 
-### `/show-context`
+Pi's `chars / 4` convention, 1,200 tokens per image; provider framing/tokenizer overhead excluded.
+Pi's usage meter is shown alongside, not reconciled with the decomposition.
+Rows: prompt prefix (base system text, startup context files, advertised skills, tool definitions)
+then messages (user, loaded skill bodies, assistant text/thinking, tool calls/results with per-tool
+child rows, compaction/branch summaries, shell runs, custom messages, media).
+The bar spans the full context window, unused capacity as dim track.
 
-`/show-context` waits for idle, computes a snapshot from Pi's rendered/structured system prompt, active tool metadata, `buildSessionContext()` messages, and context usage meter, then appends one display-only custom entry. It first renders a responsive Context Token Breakdown, then a Context Read Map.
+### Read map
 
-The token breakdown uses Pi's conservative `chars / 4` convention and 1,200 tokens per image. Prompt-prefix rows separate base system text, startup context files, advertised skills, and active tool definitions. Effective-message rows separate user text, loaded skill bodies, assistant text/thinking, tool calls/results, compaction summaries, branch summaries, user shell runs, custom messages, and media. Tool-call and tool-result rows retain cumulative totals and add uncolored per-tool child rows rendered as a Unicode box-drawing tree with muted numeric columns aligned to their parent row, while the cumulative bar keeps calls and results as whole category segments. The bar spans the active model's full context window, with unused capacity left as a dim track. Rows show counts, estimated tokens, percentages, and Pi's context meter when available. Provider framing/tokenizer overhead is explicitly excluded; the meter is displayed separately rather than forced to reconcile with the decomposition. Like the read map, it does not apply other extensions' context-hook mutations or provider-payload rewrites.
+One row per file: context files, then advertised skills, then read files by most recent evidence.
+Evidence kinds: startup context file ranges, advertised skill frontmatter, `/skill:name` loaded
+body ranges, successful `read` results matched by `toolCallId`. Media-producing reads count as
+whole-file reads. Skill body detection runs `parseSkillBlock()` on user messages only.
+Line counts are queried at command time; missing files stay visible with a warning marker.
 
-The Context Read Map renders one row per file, with context files first, advertised skills second, and other read files by most recent evidence. Internally paths are normalized absolute; display paths are relative inside `cwd` and absolute outside it.
+Bars: 10 lines per braille half-cell column, count glyphs `ˍ` to `⣿`, recency coloring for reads,
+`borderAccent`/`accent` for context files and skills. At >=100 columns: fixed 50-col filename
+column with OSC8 `file://` links; narrower terminals stack bars under filenames.
+Layout derives from component render width, so entries adapt to resizes.
 
-Evidence kinds are startup context file ranges, advertised skill frontmatter metadata, `/skill:name` loaded skill body ranges, and successful `read` tool results matched by `toolCallId`. Media-producing `read` results are treated as whole-file reads and rendered as a one-cell file. Compacted-away reads naturally disappear because collection uses the built model context, not raw branch history. File line counts are queried at command execution; missing files remain visible using evidence range length and a warning marker. Skill body detection uses Pi's `parseSkillBlock()` on user messages only, so assistant/tool quoted skill XML is ignored.
+## `/llm-stats`
 
-Rendering uses 10 lines per cell with half-cell braille resolution (left column for lines 1-5, right column for 6-10), no cell cap, count glyphs (`ˍ` unread, then bottom-up rows up to `⣿` for 4+ reads per half), and media read cells fill both braille columns because lines do not apply. The renderer uses default terminal background overall; only bar cells use `selectedBg` as a track background. Layout is computed from the component render width so existing entries adapt when the terminal is resized. Startup context and advertised skills use `borderAccent`, injected skill bodies use `accent`, and read-tool evidence uses recency coloring. Terminals at least 100 columns wide use a fixed 50-column middle-truncated filename column with aligned bars; filenames carry OSC8 `file://` links to full absolute paths on the visible path text only, and non-empty bar cells carry OSC8 links to the first line represented by that cell. Narrow terminals put left-aligned bars directly under left-aligned filenames.
+One row per finalized assistant entry with `usage` in `ctx.sessionManager.getBranch()` (per LLM
+call, not per tool call): elapsed since previous agent message as `+Ns` (timestamp for the first),
+`provider/model`, inferred start (`user`, `tools`, `other`), `fresh + cacheR (+ cacheW) = input`,
+output, stop reason, tool calls. `cacheR` shrinkage vs. previous row is warning yellow, error red
+past 50%.
 
-### `/llm-stats`
+## `/show-sysprompt`
 
-`/llm-stats` waits for idle, scans `ctx.sessionManager.getBranch()` for finalized assistant message entries with `usage`, and appends one display-only custom entry. Each row represents one assistant/LLM call, not one tool call. Prompt-side tokens render as `fresh + cacheR = input`, or `fresh + cacheR + cacheW = input` when cache writes are present. `fresh` is `usage.input`, `cacheR` is `usage.cacheRead`, and `cacheW` is `usage.cacheWrite`. Rows also show elapsed time since the previous assistant/agent message as `+Ns` (or the entry timestamp as `hh:mm:ss` when no previous assistant exists), `provider/model`, inferred start (`user`, `tools`, or `other`), output tokens, stop reason, and comma-separated tool calls or `-`. `cacheR` shrinkage versus the previous row is highlighted warning yellow, or error red when it drops by more than 50%.
-
-### `/show-sysprompt`
-
-`/show-sysprompt` waits for idle, then appends two display-only custom entries:
-
-- rendered system prompt from `ctx.getSystemPrompt()`
-- active tool schemas from `pi.getAllTools()` filtered by `pi.getActiveTools()`
-
-Both entries store display text in `data`, use collapsible custom renderers, never enter LLM context, and are hidden from the default session tree view. Tool schema formatting shows each active tool, its top-level parameters, required/optional status, inferred schema type, and parameter description when present.
+Appends two collapsible entries, hidden from the default session tree view: rendered
+`ctx.getSystemPrompt()`, and active tool schemas (`pi.getAllTools()` filtered by
+`pi.getActiveTools()`) with top-level params, required/optional, inferred type, description.
