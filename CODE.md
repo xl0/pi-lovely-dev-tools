@@ -77,6 +77,8 @@ Other extensions' context-hook mutations and provider-payload rewrites are not a
 
 Pi's `chars / 4` convention, 1,200 tokens per image; provider framing/tokenizer overhead excluded.
 Pi's usage meter is shown alongside, not reconciled with the decomposition.
+Assistant thinking is `max(visible thinking chars / 4, usage.reasoning)` per message - providers
+with hidden/summarized thinking replay the full reasoning, not the visible block text.
 Rows: prompt prefix (base system text, startup context files, advertised skills, tool definitions)
 then messages (user, loaded skill bodies, assistant text/thinking, tool calls/results with per-tool
 child rows, compaction/branch summaries, shell runs, custom messages, media).
@@ -100,8 +102,8 @@ Layout derives from component render width, so entries adapt to resizes.
 One row per finalized assistant entry with `usage` in `ctx.sessionManager.getBranch()` (per LLM
 call, not per tool call): elapsed since previous agent message as `+Ns` (timestamp for the first),
 `provider/model`, inferred start (`user`, `tools`, `other`), `fresh + cacheR (+ cacheW) = input`,
-output, stop reason, tool calls. `cacheR` shrinkage vs. previous row is warning yellow, error red
-past 50%.
+output, `think` (`usage.reasoning`, column shown only when some row reports it), stop reason,
+tool calls. `cacheR` shrinkage vs. previous row is warning yellow, error red past 50%.
 
 ## `/show-sysprompt`
 

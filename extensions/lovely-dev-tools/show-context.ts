@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent"
 import { Box, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui"
 import { CONTEXT_READ_MAP_ENTRY_TYPE } from "./entries"
-import { isRecord } from "./schema"
+import { isRecord, numberValue } from "./schema"
 
 type EvidenceKind = "startup-context" | "advertised-skill" | "loaded-skill-body" | "tool-read"
 
@@ -231,10 +231,15 @@ function collectTokenBreakdown(
 		}
 
 		if (message.role === "assistant" && Array.isArray(message.content)) {
+			let thinkingChars = 0
+			let thinkingBlocks = 0
 			for (const block of message.content) {
 				if (!isRecord(block)) continue
 				if (block.type === "text" && typeof block.text === "string") add("assistant-text", block.text.length, 1)
-				if (block.type === "thinking" && typeof block.thinking === "string") add("assistant-thinking", block.thinking.length, 1)
+				if (block.type === "thinking" && typeof block.thinking === "string") {
+					thinkingChars += block.thinking.length
+					thinkingBlocks++
+				}
 				if (block.type === "toolCall") {
 					const toolName = typeof block.name === "string" ? block.name : "unknown"
 					const chars = toolName.length + safeJsonStringify(block.arguments).length
@@ -242,6 +247,13 @@ function collectTokenBreakdown(
 					addToolTotal(toolCallTotals, toolName, chars)
 				}
 			}
+			// Providers with hidden or summarized thinking (GPT reasoning models, Claude with
+			// summarized display) replay the full reasoning, not the visible block text.
+			// usage.reasoning carries the true token count when reported; max() because the
+			// replayed reasoning replaces the visible summary rather than adding to it.
+			const reasoningChars = numberValue(isRecord(message.usage) ? message.usage.reasoning : undefined) * CHARS_PER_TOKEN
+			const totalThinkingChars = Math.max(thinkingChars, reasoningChars)
+			if (totalThinkingChars > 0) add("assistant-thinking", totalThinkingChars, Math.max(thinkingBlocks, 1))
 			continue
 		}
 
