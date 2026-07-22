@@ -1,7 +1,7 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent"
 import { Box, Text } from "@earendil-works/pi-tui"
 import { LLM_STATS_ENTRY_TYPE } from "./entries"
-import { isRecord } from "./schema"
+import { isRecord, numberValue } from "./schema"
 
 type LlmStatsRow = {
 	index: number
@@ -13,16 +13,13 @@ type LlmStatsRow = {
 	cacheWrite: number
 	input: number
 	output: number
+	reasoning: number
 	stop: string
 	tools: string
 }
 
 type LlmStatsData = {
 	rows: LlmStatsRow[]
-}
-
-function numberValue(value: unknown): number {
-	return typeof value === "number" && Number.isFinite(value) ? value : 0
 }
 
 function shortNumber(value: number): string {
@@ -72,6 +69,7 @@ function pad(value: string, width: number, right = false): string {
 function formatRows(rows: LlmStatsRow[], theme: Theme): string {
 	if (rows.length === 0) return "No assistant messages with usage."
 	const showCacheWrite = rows.some(row => row.cacheWrite !== 0)
+	const showReasoning = rows.some(row => numberValue(row.reasoning) !== 0)
 	const widths = {
 		index: Math.max(1, `${rows.length}`.length),
 		delta: Math.max("delta".length, ...rows.map(row => row.delta.length)),
@@ -82,7 +80,8 @@ function formatRows(rows: LlmStatsRow[], theme: Theme): string {
 		cacheRead: Math.max("cacheR".length, ...rows.map(row => shortNumber(row.cacheRead).length)),
 		cacheWrite: Math.max("cacheW".length, ...rows.map(row => shortNumber(row.cacheWrite).length)),
 		input: Math.max("input".length, ...rows.map(row => shortNumber(row.input).length)),
-		output: Math.max("output".length, ...rows.map(row => shortNumber(row.output).length))
+		output: Math.max("output".length, ...rows.map(row => shortNumber(row.output).length)),
+		reasoning: Math.max("think".length, ...rows.map(row => shortNumber(numberValue(row.reasoning)).length))
 	}
 	const header = [
 		pad("#", widths.index, true),
@@ -96,6 +95,7 @@ function formatRows(rows: LlmStatsRow[], theme: Theme): string {
 		"=",
 		pad("input", widths.input, true),
 		pad("output", widths.output, true),
+		...(showReasoning ? [pad("think", widths.reasoning, true)] : []),
 		pad("stop", widths.stop),
 		"tools"
 	].join("  ")
@@ -117,6 +117,7 @@ function formatRows(rows: LlmStatsRow[], theme: Theme): string {
 			"=",
 			pad(shortNumber(row.input), widths.input, true),
 			pad(shortNumber(row.output), widths.output, true),
+			...(showReasoning ? [pad(shortNumber(numberValue(row.reasoning)), widths.reasoning, true)] : []),
 			pad(row.stop, widths.stop),
 			row.tools
 		].join("  ")
@@ -169,6 +170,7 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 					cacheWrite,
 					input,
 					output,
+					reasoning: numberValue(usage.reasoning),
 					stop: typeof message.stopReason === "string" ? message.stopReason : "-",
 					tools: toolNames(message.content)
 				})

@@ -47,7 +47,7 @@ Show an estimated token breakdown of the current context — system prompt, cont
 
 ### `/llm-stats`
 
-Show one row per LLM call in the current branch: time since the previous agent message, model, what initiated the call, prompt tokens as `fresh + cacheR (+ cacheW) = input`, output tokens, stop reason, and tool calls. The cache-read column is highlighted when cache reads drop from the previous call — a sign you lost your prompt cache.
+Show one row per LLM call in the current branch: time since the previous agent message, model, what initiated the call, prompt tokens as `fresh + cacheR (+ cacheW) = input`, output tokens, thinking tokens (when the provider reports them), stop reason, and tool calls. The cache-read column is highlighted when cache reads drop from the previous call — a sign you lost your prompt cache.
 
 ![llm-stats output](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/llm-stats.png)
 

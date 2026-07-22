@@ -18,6 +18,10 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
+export function numberValue(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : 0
+}
+
 export function asSchema(value: unknown): Schema | undefined {
 	return isRecord(value) ? value : undefined
 }
