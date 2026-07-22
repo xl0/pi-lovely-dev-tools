@@ -1,32 +1,26 @@
-# TODO
+# Plan
 
-## Current state
+Ship a small Pi extension package of interactive debugging helpers.
 
-`/tool` is a Pi extension command. It uses the outer session for UI/tool metadata and creates one single-use Nested Execution Session per Manual Tool Run for executable tool definitions and runtime context.
+Intent: give the human the same visibility and reach into a session that the LLM has.
+Run any tool by hand, see what is actually in the context window, see what each LLM call cost.
+Everything these commands emit is display-only and must never leak back into LLM context.
 
-Implemented:
+`/tool` runs tools for real, not as a simulation: a single-use Nested Execution Session
+provides executable definitions and runtime context, while the outer session provides
+UI and tool metadata.
+Agent Tool Policy hooks are deliberately bypassed - a manual run is the human's call.
 
-- [x] selector, flat args, schema arg editor
-- [x] display-only Manual Tool Run custom entries
-- [x] nested execution backend via `createAgentSessionServices()` + `createAgentSessionFromServices()`
-- [x] startup `-e` / `--extension` / `--no-extensions` / extension flag mirroring via `parseArgs(process.argv.slice(2))`
-- [x] muted nested startup UI and bridged execution UI
-- [x] direct `prepareArguments` + `validateToolArguments()` + `definition.execute(...)`
-- [x] active-tool-name mirroring for nested context introspection
-- [x] focused pending Manual Tool Run UI with Esc abort
-- [x] partial `onUpdate` rendering in focused pending UI; final session stores final result only
-- [x] image display cleanup: inline when supported, `/tmp/pi-tool-image-<uuid>.<ext>` fallback otherwise
-- [x] non-image, non-text result blocks render as `[type]` plus JSON details
-- [x] missing nested tool errors include nested diagnostics
-- [x] docs/ADR/context synced for nested backend
-- [x] README cleaned for release
-- [x] `bun run check` passes
-- [x] package dry-run checked
-- [x] `/show-context` Context Read Map command
-- [x] `/show-context` visual context token breakdown
-- [x] `/llm-stats` per-call token usage command
-- [x] graceful Nested Execution Session shutdown before context invalidation
+## TODO
 
-## Remaining work
+- [x] `/tool`: selector, flat args, schema arg editor, focused pending UI with Esc abort
+- [x] `/tool` nested execution backend, incl. startup extension mirroring and graceful shutdown
+- [x] `/tool` result rendering: partial updates, images, non-text blocks
+- [x] `/show-context`: Context Read Map and context token breakdown
+- [x] `/llm-stats`: per-call token usage
+- [x] docs, ADR, CONTEXT, README synced for release
 
-No planned code work. Before publishing, rerun `bun run check` and package dry-run if anything changes.
+## Remaining
+
+No planned code work.
+Before publishing, rerun `bun run check` and the package dry-run if anything changes.

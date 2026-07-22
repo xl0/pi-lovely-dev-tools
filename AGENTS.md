@@ -3,10 +3,16 @@
 Maintain 2 important files in sync with the codebase:
 
 - `CODE.md`: An in-depth summary of the current state of the codebase.
-- `TODO.md`: Contains both high-level birds eye plan, as well as a lower-level todo list. Use [x] boxes to mark items.
+The file should contain high-level view of the code and only non-obvious implementation details. Don't overload it with small details.
 
-IMPORTANT: At the start of each conversation, always fully read `CODE.md`. You may read `TODO.md` when relevant to the task.
+- `PLAN.md`: High-level plan in plain English, followed by TODO with [x] boxes.
+TODO items may be sections (## [x] Section) or paragraphs - don't make it rigid.
+Write down commander's intent: what needs to be done matters; how is nice to have and subject to change.
+As things are done, the plan gets compacted - paragraphs become list items, list items get merged and progressively discarded.
+
+IMPORTANT: At the start of each conversation, always fully read `CODE.md`. You may read `PLAN.md` when relevant to the task.
 Update the files as you go, keep the updates concise. Not a changelog - content reflects the current state, not history.
+Don't put too much on one line, keep things readable. Err on the side of minimalism, don't be afraid to trim fat - some of it was written my yappy models.
 
 # Guidelines
 
