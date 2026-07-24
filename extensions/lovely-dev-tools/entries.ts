@@ -6,6 +6,7 @@ export const SYSTEM_PROMPT_ENTRY_TYPE = "lovely-dev-tools.system-prompt"
 export const TOOL_SCHEMAS_ENTRY_TYPE = "lovely-dev-tools.tool-schemas"
 export const CONTEXT_READ_MAP_ENTRY_TYPE = "lovely-dev-tools.context-read-map"
 export const LLM_STATS_ENTRY_TYPE = "lovely-dev-tools.llm-stats"
+export const LLM_CALL_CONSTRAINTS_ENTRY_TYPE = "lovely-dev-tools.llm-call-constraints"
 
 export type ImageFallback = {
 	mimeType: string
