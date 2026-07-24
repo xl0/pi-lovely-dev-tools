@@ -1,7 +1,14 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent"
 import { Box, Text } from "@earendil-works/pi-tui"
-import { LLM_STATS_ENTRY_TYPE } from "./entries"
+import { LLM_CALL_CONSTRAINTS_ENTRY_TYPE, LLM_STATS_ENTRY_TYPE } from "./entries"
 import { isRecord, numberValue } from "./schema"
+
+type ToolConstraint = "json_schema" | "grammar:lark" | "grammar:regex"
+
+type LlmCallConstraintsData = {
+	assistantTimestamp: number
+	tools: Record<string, ToolConstraint>
+}
 
 type LlmStatsRow = {
 	index: number
@@ -44,14 +51,90 @@ function deltaText(current: number | undefined, previous: number | undefined): s
 	return `+${Math.max(0, Math.round((current - previous) / 1000))}s`
 }
 
-function toolNames(content: unknown): string {
+function toolNames(content: unknown, constraints: Record<string, ToolConstraint> = {}): string {
 	if (!Array.isArray(content)) return "-"
 	const names = content
 		.filter(isRecord)
 		.map(block => block as { type?: unknown; name?: unknown })
 		.filter(block => block.type === "toolCall" && typeof block.name === "string")
-		.map(block => block.name as string)
+		.map(block => {
+			const name = block.name as string
+			const constraint = constraints[name]
+			return constraint ? `${name}[${constraint}]` : name
+		})
 	return names.length === 0 ? "-" : names.join(",")
+}
+
+function field(value: unknown, key: string): unknown {
+	return isRecord(value) ? value[key] : undefined
+}
+
+function setConstraint(constraints: Map<string, ToolConstraint>, name: unknown, constraint: ToolConstraint) {
+	if (typeof name === "string") constraints.set(name.toLowerCase(), constraint)
+}
+
+function grammarConstraint(value: unknown): ToolConstraint | undefined {
+	if (!isRecord(value)) return undefined
+	const syntax = field(value, "syntax")
+	if (syntax === "lark" || syntax === "regex") return `grammar:${syntax}`
+	return grammarConstraint(field(value, "grammar"))
+}
+
+function payloadConstraints(payload: unknown): Map<string, ToolConstraint> {
+	const constraints = new Map<string, ToolConstraint>()
+	const tools = field(payload, "tools")
+
+	if (Array.isArray(tools)) {
+		for (const value of tools) {
+			const fn = field(value, "function")
+			const custom = field(value, "custom")
+			const customFormat = field(custom, "format")
+			const grammar = grammarConstraint(isRecord(customFormat) ? customFormat : field(value, "format"))
+			if (grammar) setConstraint(constraints, field(custom, "name") ?? field(value, "name"), grammar)
+			if (field(value, "strict") === true || field(fn, "strict") === true) {
+				setConstraint(constraints, field(fn, "name") ?? field(value, "name"), "json_schema")
+			}
+
+			const declarations = field(value, "functionDeclarations")
+			const functionConfig = field(field(payload, "toolConfig"), "functionCallingConfig")
+			if ((field(functionConfig, "mode") === "VALIDATED" || field(functionConfig, "mode") === "ANY") && Array.isArray(declarations)) {
+				for (const declaration of declarations) {
+					setConstraint(constraints, field(declaration, "name"), "json_schema")
+				}
+			}
+		}
+	}
+
+	const bedrockTools = field(field(payload, "toolConfig"), "tools")
+	if (Array.isArray(bedrockTools)) {
+		for (const value of bedrockTools) {
+			const toolSpec = field(value, "toolSpec")
+			if (field(toolSpec, "strict") === true) setConstraint(constraints, field(toolSpec, "name"), "json_schema")
+		}
+	}
+
+	const contextTools = field(field(payload, "context"), "tools")
+	if (Array.isArray(contextTools)) {
+		for (const value of contextTools) {
+			const config = field(value, "constrainedSampling")
+			if (field(config, "type") === "json_schema") setConstraint(constraints, field(value, "name"), "json_schema")
+			if (field(config, "type") === "grammar") {
+				const variants = field(config, "variants")
+				if (typeof field(variants, "openai_lark") === "string") {
+					setConstraint(constraints, field(value, "name"), "grammar:lark")
+				} else if (typeof field(variants, "openai_regex") === "string") {
+					setConstraint(constraints, field(value, "name"), "grammar:regex")
+				}
+			}
+		}
+	}
+
+	return constraints
+}
+
+function constraintsData(value: unknown): LlmCallConstraintsData | undefined {
+	if (typeof field(value, "assistantTimestamp") !== "number" || !isRecord(field(value, "tools"))) return undefined
+	return value as LlmCallConstraintsData
 }
 
 function callInitiator(previousMessage: unknown): string {
@@ -134,16 +217,46 @@ function renderStats(data: unknown, theme: Theme) {
 }
 
 export function registerLlmStatsCommand(pi: ExtensionAPI) {
+	let requestConstraints: Map<string, ToolConstraint> | undefined
+	pi.on("before_provider_request", event => {
+		requestConstraints = payloadConstraints(event.payload)
+	})
+	pi.on("message_end", event => {
+		if (!isRecord(event.message) || event.message.role !== "assistant") return
+		const constraints = requestConstraints
+		requestConstraints = undefined
+		if (!Array.isArray(event.message.content)) return
+		const tools: Record<string, ToolConstraint> = {}
+		for (const block of event.message.content) {
+			if (!isRecord(block) || block.type !== "toolCall" || typeof block.name !== "string") continue
+			const constraint = constraints?.get(block.name.toLowerCase())
+			if (constraint) tools[block.name] = constraint
+		}
+		if (Object.keys(tools).length > 0 && typeof event.message.timestamp === "number") {
+			pi.appendEntry(LLM_CALL_CONSTRAINTS_ENTRY_TYPE, {
+				assistantTimestamp: event.message.timestamp,
+				tools
+			} satisfies LlmCallConstraintsData)
+		}
+	})
+
 	pi.registerEntryRenderer(LLM_STATS_ENTRY_TYPE, (entry, _state, theme) => renderStats(entry.data, theme))
 
 	pi.registerCommand("llm-stats", {
-		description: "Show per-call token usage for assistant responses in the current branch.",
+		description: "Show per-call token usage and tool constraints for assistant responses in the current branch.",
 		async handler(_args, ctx) {
 			await ctx.waitForIdle()
+			const branch = ctx.sessionManager.getBranch()
+			const constraintsByTimestamp = new Map<number, Record<string, ToolConstraint>>()
+			for (const entry of branch) {
+				if (entry.type !== "custom" || entry.customType !== LLM_CALL_CONSTRAINTS_ENTRY_TYPE) continue
+				const data = constraintsData(entry.data)
+				if (data) constraintsByTimestamp.set(data.assistantTimestamp, data.tools)
+			}
 			let lastAgentTimestamp: number | undefined
 			const rows: LlmStatsRow[] = []
 			let previousMessage: unknown
-			for (const entry of ctx.sessionManager.getBranch()) {
+			for (const entry of branch) {
 				if (entry.type !== "message") continue
 				const message = entry.message
 				if (!isRecord(message)) continue
@@ -172,7 +285,10 @@ export function registerLlmStatsCommand(pi: ExtensionAPI) {
 					output,
 					reasoning: numberValue(usage.reasoning),
 					stop: typeof message.stopReason === "string" ? message.stopReason : "-",
-					tools: toolNames(message.content)
+					tools: toolNames(
+						message.content,
+						typeof message.timestamp === "number" ? constraintsByTimestamp.get(message.timestamp) : undefined
+					)
 				})
 				lastAgentTimestamp = agentTimestamp
 				previousMessage = message

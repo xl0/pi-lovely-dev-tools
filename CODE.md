@@ -103,7 +103,10 @@ One row per finalized assistant entry with `usage` in `ctx.sessionManager.getBra
 call, not per tool call): elapsed since previous agent message as `+Ns` (timestamp for the first),
 `provider/model`, inferred start (`user`, `tools`, `other`), `fresh + cacheR (+ cacheW) = input`,
 output, `think` (`usage.reasoning`, column shown only when some row reports it), stop reason,
-tool calls. `cacheR` shrinkage vs. previous row is warning yellow, error red past 50%.
+tool calls. Calls using provider-side constraints are annotated as `json_schema`, `grammar:lark`,
+or `grammar:regex`. The extension derives actual constraints from the provider payload and persists
+hidden, branch-local metadata only when a constrained tool is called. `cacheR` shrinkage vs. the
+previous row is warning yellow, error red past 50%.
 
 ## `/show-sysprompt`
 
