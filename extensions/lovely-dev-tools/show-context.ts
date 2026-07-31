@@ -559,7 +559,7 @@ function renderBarCells(file: FileEvidence, maxOrdinal: number, theme: Theme) {
 			if (priorityDiff !== 0) return priorityDiff > 0 ? source : best
 			return source.ordinal > best.ordinal ? source : best
 		})
-		cells.push(osc8(barCell(colorCell(glyph, strongest.kind, strongest.ordinal, maxOrdinal, theme), theme), fileUrl(file.path, start)))
+		cells.push(barCell(colorCell(glyph, strongest.kind, strongest.ordinal, maxOrdinal, theme), theme))
 	}
 	return cells
 }
@@ -597,12 +597,8 @@ function osc8(text: string, url: string) {
 	return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`
 }
 
-function fileUrl(path: string, startLine?: number, endLine?: number) {
-	const { TERM_PROGRAM } = process.env
-	if (TERM_PROGRAM === "vscode" && startLine !== undefined) return `vscode://file${path}:${startLine}:1`
-	const lineFragment =
-		startLine === undefined ? "" : `#L${startLine}${endLine === undefined || endLine === startLine ? "" : `-L${endLine}`}`
-	return `${pathToFileURL(path).href}${lineFragment}`
+function fileUrl(path: string) {
+	return pathToFileURL(path).href
 }
 
 function shortTokenCount(value: number) {
