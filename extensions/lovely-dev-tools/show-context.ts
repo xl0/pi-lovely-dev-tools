@@ -208,7 +208,7 @@ function collectTokenBreakdown(
 	const skillFileReadTool = (["read", "bash"] as const).find(tool =>
 		(options.selectedTools || ["read", "bash", "edit", "write"]).includes(tool)
 	)
-	const skillsSection = skillFileReadTool ? formatSkillsForPrompt(options.skills ?? [], skillFileReadTool) : ""
+	const skillsSection = skillFileReadTool ? formatSkillsForPrompt(options.skills ?? []) : ""
 	let baseSystemChars = systemPrompt.length
 	if (contextSection && systemPrompt.includes(contextSection)) {
 		baseSystemChars -= contextSection.length
@@ -446,8 +446,8 @@ function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 	const selectedTools = systemPromptOptions.selectedTools || ["read", "bash", "edit", "write"]
 	const skillFileReadTool = (["read", "bash"] as const).find(tool => selectedTools.includes(tool))
 	const advertisedSkills = skillFileReadTool ? (systemPromptOptions.skills ?? []).filter(skill => !skill.disableModelInvocation) : []
-	const advertisedChars = skillFileReadTool ? formatSkillsForPrompt(advertisedSkills, skillFileReadTool).length : 0
-	const skillWeights = skillFileReadTool ? advertisedSkills.map(skill => formatSkillsForPrompt([skill], skillFileReadTool).length) : []
+	const advertisedChars = skillFileReadTool ? formatSkillsForPrompt(advertisedSkills).length : 0
+	const skillWeights = skillFileReadTool ? advertisedSkills.map(skill => formatSkillsForPrompt([skill]).length) : []
 	const totalSkillWeight = skillWeights.reduce((sum, weight) => sum + weight, 0)
 	let cumulativeSkillWeight = 0
 	let allocatedSkillChars = 0

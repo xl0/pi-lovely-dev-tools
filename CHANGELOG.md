@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- Advertised skills are only counted and listed when Pi actually injects skill metadata (a `read`/`bash` tool is available), using the matching read/bash prompt variant.
+- Advertised skills are only counted and listed when Pi actually injects skill metadata (a `read`/`bash` tool is available).
 - Read-map bar cells no longer emit a hyperlink escape per cell; the filename deep-links to the strongest evidence range instead.
 
 ## [0.3.4] - 2026-07-23
