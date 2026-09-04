@@ -17,12 +17,14 @@
 	"files": [
 		"extensions/",
 		"README.md",
+		"CHANGELOG.md",
 		"LICENSE"
 	],
 	"scripts": {
 		"typecheck": "tsgo --noEmit",
 		"check": "bun run typecheck && bun run biome:check",
-		"release": "bun publish --access public",
+		"prepublishOnly": "bun run check",
+		"release": "bun run scripts/release.ts",
 		"lint": "biome lint .",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
