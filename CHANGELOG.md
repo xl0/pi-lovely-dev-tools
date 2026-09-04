@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-09-04
+
 ### Added
 
 - Read map shows a compact per-file token contribution and sorts files by contribution within their group.
