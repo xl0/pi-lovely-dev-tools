@@ -61,6 +61,7 @@ Show one row per LLM call in the current branch: time since the previous agent m
 | [Pi Lovely Config](https://github.com/xl0/pi-lovely-config) | scoped config helpers for Pi extensions |
 | [Pi Lovely Comment](https://github.com/xl0/agent-files/tree/master/pi/packages/pi-lovely-comment) | open the last assistant message in your editor and sync edits back into the prompt |
 | [Pi Lovely Rename](https://github.com/xl0/agent-files/tree/master/pi/packages/pi-lovely-rename) | automatic and manual session naming |
+| [Pi Lovely Ctx Reminder](https://github.com/xl0/agent-files/tree/master/pi/packages/pi-lovely-ctx-reminder) | notifies the model when context usage crosses 25/50/75/85/95% |
 
 ---
 
