@@ -86,7 +86,10 @@ The bar spans the full context window, unused capacity as dim track.
 
 ### Read map
 
-One row per file: context files, then advertised skills, then read files by most recent evidence.
+One row per file, grouped as context files, skills, then read files. Each group sorts by estimated
+context contribution, then evidence recency and path.
+Advertised skills appear only when Pi actually injects skill metadata (a `read`/`bash` tool
+is available); otherwise the model never saw them and they stay out of the map.
 Evidence kinds: startup context file ranges, advertised skill frontmatter, `/skill:name` loaded
 body ranges, successful `read` results matched by `toolCallId`. Media-producing reads count as
 whole-file reads. Skill body detection runs `parseSkillBlock()` on user messages only.
@@ -94,7 +97,10 @@ Line counts are queried at command time; missing files stay visible with a warni
 
 Bars: 10 lines per braille half-cell column, count glyphs `ˍ` to `⣿`, recency coloring for reads,
 `borderAccent`/`accent` for context files and skills. At >=100 columns: fixed 50-col filename
-column with OSC8 `file://` links; narrower terminals stack bars under filenames.
+column with OSC8 links (line fragments, `vscode://` under VS Code) to the strongest evidence range
+plus compact estimated token contribution; narrower terminals
+stack bars under filenames. Token counts use actual context text, count repeated reads, and use
+the same 1,200-token estimate for images as the token breakdown.
 Layout derives from component render width, so entries adapt to resizes.
 
 ## `/llm-stats`
