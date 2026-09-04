@@ -235,7 +235,7 @@ export async function editToolArgs(ui: ExtensionUIContext, tool: EditableTool): 
 		const rowCanInclude = (row: ArgRow) => row.kind !== "item" && !row.required
 		const rowIncluded = (row: ArgRow) => row.kind === "item" || row.required || hasAt(args, row.path)
 		const rowChoices = (row: ArgRow | undefined) => {
-			if (!row || row.kind !== "field") return undefined
+			if (row?.kind !== "field") return undefined
 			const enumValues = row.schema ? schemaEnum(row.schema) : undefined
 			const enumChoices = enumValues?.map(formatArgValue)
 			return enumChoices?.length ? enumChoices : row.schema?.type === "boolean" ? ["true", "false"] : undefined
@@ -270,7 +270,7 @@ export async function editToolArgs(ui: ExtensionUIContext, tool: EditableTool): 
 		}
 		const updateActiveInput = () => {
 			const row = selectedRow()
-			if (!row || row.kind !== "field" || rowChoices(row) || !rowIncluded(row)) {
+			if (row?.kind !== "field" || rowChoices(row) || !rowIncluded(row)) {
 				state.activeInput = undefined
 				return
 			}
