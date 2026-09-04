@@ -6,7 +6,10 @@ running through a nested SDK session.
 
 ## Structure
 
-- `package.json`: pi manifest. Loads `./extensions`; `pi.video` links `assets/demo.mp4` via raw
+- `package.json`: pi manifest. `bun run release [patch|minor|major|x.y.z]` cuts a release
+  via `scripts/release.ts` (verify → roll CHANGELOG → bump → confirm → tag → push →
+  approve staged npm build with 2FA); tag push triggers `.github/workflows/publish.yml`.
+  Changelog entries are written by hand under `[Unreleased]`. Loads `./extensions`; `pi.video` links `assets/demo.mp4` via raw
   GitHub URL; `assets/` stays in repo, not in the npm package. `@earendil-works/pi-ai` is a
   peer/dev dep for direct `validateToolArguments()` imports.
 - `extensions/lovely-dev-tools/`
