@@ -24,6 +24,7 @@ type EvidenceSource = {
 	kind: EvidenceKind
 	range: EvidenceRange
 	ordinal: number
+	contextChars?: number
 	media?: boolean
 }
 
@@ -95,6 +96,7 @@ type ReadCall = {
 const LINES_PER_CELL = 10
 const CHARS_PER_TOKEN = 4
 const ESTIMATED_IMAGE_CHARS = 4800
+const FILE_TOKEN_WIDTH = 7
 const EMPTY_GLYPH = " "
 const BRAILLE_BASE = 0x2800
 const LEFT_DOTS_BY_COUNT = [0, 64, 68, 70, 71] as const
@@ -125,13 +127,21 @@ function safeJsonStringify(value: unknown) {
 	}
 }
 
+function contextFilePromptSection(path: string, content: string) {
+	return `<project_instructions path="${path}">\n${content}\n</project_instructions>\n\n`
+}
+
 function contextFilesPromptSection(contextFiles: Array<{ path: string; content: string }>) {
 	if (contextFiles.length === 0) return ""
 	let section = "\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n"
 	for (const contextFile of contextFiles) {
-		section += `<project_instructions path="${contextFile.path}">\n${contextFile.content}\n</project_instructions>\n\n`
+		section += contextFilePromptSection(contextFile.path, contextFile.content)
 	}
 	return `${section}</project_context>\n`
+}
+
+function contextFilePromptChars(path: string, content: string) {
+	return contextFilePromptSection(path, content).length
 }
 
 function contentSize(content: unknown) {
@@ -194,7 +204,11 @@ function collectTokenBreakdown(
 	const options = ctx.getSystemPromptOptions()
 	const systemPrompt = ctx.getSystemPrompt()
 	const contextSection = contextFilesPromptSection(options.contextFiles ?? [])
-	const skillsSection = formatSkillsForPrompt(options.skills ?? [])
+	// Pi only advertises skills when a file-reading tool is available (system-prompt.ts).
+	const skillFileReadTool = (["read", "bash"] as const).find(tool =>
+		(options.selectedTools || ["read", "bash", "edit", "write"]).includes(tool)
+	)
+	const skillsSection = skillFileReadTool ? formatSkillsForPrompt(options.skills ?? [], skillFileReadTool) : ""
 	let baseSystemChars = systemPrompt.length
 	if (contextSection && systemPrompt.includes(contextSection)) {
 		baseSystemChars -= contextSection.length
@@ -398,7 +412,7 @@ function readCallFromBlock(block: unknown): ReadCall | undefined {
 function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): ContextReadMapData {
 	const cwd = ctx.cwd
 	const files = new Map<string, FileEvidence>()
-	// ordinal = evidence recency; order = first-seen file order for stable groups.
+	// ordinal = evidence recency; order = first-seen file order for stable ties.
 	let ordinal = 0
 	let order = 0
 	const systemPromptOptions = ctx.getSystemPromptOptions()
@@ -417,18 +431,49 @@ function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 			files,
 			cwd,
 			contextFile.path,
-			{ kind: "startup-context", range: { startLine: 1, endLine: lineCount }, ordinal: ordinal++ },
+			{
+				kind: "startup-context",
+				range: { startLine: 1, endLine: lineCount },
+				ordinal: ordinal++,
+				contextChars: contextFilePromptChars(contextFile.path, contextFile.content)
+			},
 			order++
 		)
 	}
 
-	for (const skill of systemPromptOptions.skills ?? []) {
-		if (skill.disableModelInvocation) continue
+	// Pi omits skill metadata from the prompt when neither read nor bash is available;
+	// in that case the model never saw these files, so leave them out of the map.
+	const selectedTools = systemPromptOptions.selectedTools || ["read", "bash", "edit", "write"]
+	const skillFileReadTool = (["read", "bash"] as const).find(tool => selectedTools.includes(tool))
+	const advertisedSkills = skillFileReadTool ? (systemPromptOptions.skills ?? []).filter(skill => !skill.disableModelInvocation) : []
+	const advertisedChars = skillFileReadTool ? formatSkillsForPrompt(advertisedSkills, skillFileReadTool).length : 0
+	const skillWeights = skillFileReadTool ? advertisedSkills.map(skill => formatSkillsForPrompt([skill], skillFileReadTool).length) : []
+	const totalSkillWeight = skillWeights.reduce((sum, weight) => sum + weight, 0)
+	let cumulativeSkillWeight = 0
+	let allocatedSkillChars = 0
+	for (const [index, skill] of advertisedSkills.entries()) {
+		cumulativeSkillWeight += skillWeights[index] ?? 0
+		// Weights are per-skill renders, but the joined prompt adds shared headers/separators,
+		// so per-file shares are approximate; the boundary allocation keeps the total exact.
+		// totalSkillWeight is 0 only if every skill renders empty; fall back to even split.
+		const boundary =
+			index === advertisedSkills.length - 1
+				? advertisedChars
+				: totalSkillWeight === 0
+					? Math.round(((index + 1) / advertisedSkills.length) * advertisedChars)
+					: Math.round((cumulativeSkillWeight / totalSkillWeight) * advertisedChars)
+		const contextChars = Math.max(0, boundary - allocatedSkillChars)
+		allocatedSkillChars = boundary
 		addEvidence(
 			files,
 			cwd,
 			skill.filePath,
-			{ kind: "advertised-skill", range: getSkillRanges(skill.filePath).frontmatter, ordinal: ordinal++ },
+			{
+				kind: "advertised-skill",
+				range: getSkillRanges(skill.filePath).frontmatter,
+				ordinal: ordinal++,
+				contextChars
+			},
 			order++
 		)
 	}
@@ -455,38 +500,61 @@ function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 			const call = readCalls.get(contextMessage.toolCallId)
 			if (!call) continue
 			if (hasMediaContent(message)) {
+				const { textChars, images } = contentSize(contextMessage.content)
 				addEvidence(
 					files,
 					cwd,
 					call.path,
-					{ kind: "tool-read", range: { startLine: 1, endLine: 10 }, ordinal: ordinal++, media: true },
+					{
+						kind: "tool-read",
+						range: { startLine: 1, endLine: 10 },
+						ordinal: ordinal++,
+						contextChars: textChars + images * ESTIMATED_IMAGE_CHARS,
+						media: true
+					},
 					order++,
 					1
 				)
 				continue
 			}
 			const startLine = Math.max(1, call.offset ?? 1)
-			let lineCount = countLines(messageText(message))
+			const text = messageText(message)
+			let lineCount = countLines(text)
 			if (typeof call.limit === "number") lineCount = Math.min(lineCount, call.limit)
 			if (lineCount > 0) {
 				addEvidence(
 					files,
 					cwd,
 					call.path,
-					{ kind: "tool-read", range: { startLine, endLine: startLine + lineCount - 1 }, ordinal: ordinal++ },
+					{
+						kind: "tool-read",
+						range: { startLine, endLine: startLine + lineCount - 1 },
+						ordinal: ordinal++,
+						// Same denominator as the token breakdown (contentSize textChars),
+						// not messageText (which joins blocks with newlines).
+						contextChars: contentSize(contextMessage.content).textChars
+					},
 					order++
 				)
 			}
 		}
 
 		if (contextMessage.role === "user") {
+			// Same split as the token breakdown: skill body = full text minus the user's own words.
+			const { textChars } = contentSize(contextMessage.content)
 			const skillBlock = parseSkillBlock(messageText(message))
 			if (skillBlock && !skillBlock.location.includes("${")) {
+				const userChars = Math.min(textChars, skillBlock.userMessage?.length ?? 0)
 				addEvidence(
 					files,
 					cwd,
 					skillBlock.location,
-					{ kind: "loaded-skill-body", range: getSkillRanges(skillBlock.location).body, ordinal: ordinal++ },
+					{
+						kind: "loaded-skill-body",
+						range: getSkillRanges(skillBlock.location).body,
+						ordinal: ordinal++,
+						contextChars: textChars - userChars
+					},
 					order++
 				)
 			}
@@ -496,14 +564,15 @@ function collectContextReadMap(pi: ExtensionAPI, ctx: ExtensionCommandContext): 
 	const sorted = [...files.values()].sort((a, b) => {
 		const group = (file: FileEvidence) => {
 			if (file.sources.some(source => source.kind === "startup-context")) return 0
-			if (file.sources.some(source => source.kind === "advertised-skill")) return 1
+			if (file.sources.some(source => source.kind === "advertised-skill" || source.kind === "loaded-skill-body")) return 1
 			return 2
 		}
 		const groupDiff = group(a) - group(b)
 		if (groupDiff !== 0) return groupDiff
-		if (group(a) < 2) return a.order - b.order
+		const contributionDiff = fileContextChars(b) - fileContextChars(a)
+		if (contributionDiff !== 0) return contributionDiff
 		const recentDiff = Math.max(...b.sources.map(source => source.ordinal)) - Math.max(...a.sources.map(source => source.ordinal))
-		return recentDiff || a.displayPath.localeCompare(b.displayPath)
+		return recentDiff || a.order - b.order || a.displayPath.localeCompare(b.displayPath)
 	})
 
 	return { linesPerCell: LINES_PER_CELL, tokens: collectTokenBreakdown(pi, ctx, messages), files: sorted }
@@ -536,6 +605,14 @@ function readCountGlyph(leftCount: number, rightCount: number) {
 	return String.fromCodePoint(BRAILLE_BASE + leftDots + rightDots)
 }
 
+function strongestSource(sources: EvidenceSource[]) {
+	return sources.reduce((best, source) => {
+		const priorityDiff = sourcePriority(source.kind) - sourcePriority(best.kind)
+		if (priorityDiff !== 0) return priorityDiff > 0 ? source : best
+		return source.ordinal > best.ordinal ? source : best
+	})
+}
+
 function renderBarCells(file: FileEvidence, maxOrdinal: number, theme: Theme) {
 	const cellCount = Math.max(1, Math.ceil(file.totalLines / LINES_PER_CELL))
 	const cells: string[] = []
@@ -554,11 +631,7 @@ function renderBarCells(file: FileEvidence, maxOrdinal: number, theme: Theme) {
 		const rightCount =
 			mediaCount + overlapping.filter(source => !source.media && source.range.startLine <= end && source.range.endLine > middle).length
 		const glyph = readCountGlyph(leftCount, rightCount)
-		const strongest = overlapping.reduce((best, source) => {
-			const priorityDiff = sourcePriority(source.kind) - sourcePriority(best.kind)
-			if (priorityDiff !== 0) return priorityDiff > 0 ? source : best
-			return source.ordinal > best.ordinal ? source : best
-		})
+		const strongest = strongestSource(overlapping)
 		cells.push(barCell(colorCell(glyph, strongest.kind, strongest.ordinal, maxOrdinal, theme), theme))
 	}
 	return cells
@@ -597,14 +670,32 @@ function osc8(text: string, url: string) {
 	return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`
 }
 
-function fileUrl(path: string) {
-	return pathToFileURL(path).href
+function fileUrl(path: string, startLine?: number, endLine?: number) {
+	const { TERM_PROGRAM } = process.env
+	if (TERM_PROGRAM === "vscode" && startLine !== undefined) return `vscode://file${path}:${startLine}:1`
+	const lineFragment =
+		startLine === undefined ? "" : `#L${startLine}${endLine === undefined || endLine === startLine ? "" : `-L${endLine}`}`
+	return `${pathToFileURL(path).href}${lineFragment}`
+}
+
+function fileLinkTarget(file: FileEvidence) {
+	const strongest = strongestSource(file.sources)
+	return fileUrl(file.path, strongest.range.startLine, strongest.range.endLine)
 }
 
 function shortTokenCount(value: number) {
 	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}m`
 	if (value >= 1000) return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}k`
 	return `${value}`
+}
+
+function fileContextChars(file: FileEvidence) {
+	return file.sources.reduce((sum, source) => sum + Math.max(0, source.contextChars ?? 0), 0)
+}
+
+function fileTokenLabel(file: FileEvidence) {
+	if (!file.sources.some(source => typeof source.contextChars === "number")) return ""
+	return `≈${shortTokenCount(Math.ceil(fileContextChars(file) / CHARS_PER_TOKEN))}`
 }
 
 function tokenRowColor(id: TokenRowId, text: string, theme: Theme) {
@@ -732,19 +823,24 @@ function renderSnapshot(details: ContextReadMapData, width: number, theme: Theme
 	]
 	for (const file of details.files) {
 		const cells = renderBarCells(file, maxOrdinal, theme)
+		const tokenLabel = fileTokenLabel(file)
 		if (wide) {
-			const displayName = truncatePath(file.displayPath, pathWidth)
-			const padding = " ".repeat(Math.max(0, pathWidth - displayName.length))
-			const linkedName = `${padding}${osc8(displayName, fileUrl(file.path))}`
+			const nameWidth = pathWidth - (tokenLabel ? FILE_TOKEN_WIDTH + 1 : 0)
+			const displayName = truncatePath(file.displayPath, nameWidth)
+			const padding = " ".repeat(Math.max(0, nameWidth - displayName.length))
+			const linkedName = osc8(displayName, fileLinkTarget(file))
 			const name = file.missing ? theme.fg("warning", linkedName) : linkedName
+			const label = tokenLabel ? ` ${theme.fg("dim", tokenLabel.padStart(FILE_TOKEN_WIDTH))}` : ""
 			const wrapped = wrapBar(cells, Math.max(10, width - pathWidth - 3))
-			lines.push(`${name} ${wrapped[0]}`)
+			lines.push(`${padding}${name}${label} ${wrapped[0]}`)
 			for (const chunk of wrapped.slice(1)) lines.push(`${"".padEnd(pathWidth)} ${chunk}`)
 		} else {
-			const displayName = truncatePath(file.displayPath, Math.max(10, width - 2))
-			const linkedName = osc8(displayName, fileUrl(file.path))
+			const availableWidth = Math.max(1, width - 2)
+			const labelWidth = tokenLabel ? tokenLabel.length + 1 : 0
+			const displayName = truncatePath(file.displayPath, Math.max(1, availableWidth - labelWidth))
+			const linkedName = osc8(displayName, fileLinkTarget(file))
 			const name = file.missing ? theme.fg("warning", linkedName) : linkedName
-			lines.push(name)
+			lines.push(`${name}${tokenLabel ? ` ${theme.fg("dim", tokenLabel)}` : ""}`)
 			for (const chunk of wrapBar(cells, Math.max(10, width - 2))) lines.push(chunk)
 		}
 	}

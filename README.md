@@ -41,7 +41,7 @@ Show the rendered system prompt and active tool schemas — useful when the agen
 
 ### `/show-context`
 
-Show an estimated token breakdown of the current context — system prompt, context files, skills, tool definitions, messages, thinking, tool calls and results (total and per tool), compactions, and more — plus a coverage map of the files the model has actually seen: startup context files, skills, and `read` results that survived compaction.
+Show an estimated token breakdown of the current context — system prompt, context files, skills, tool definitions, messages, thinking, tool calls and results (total and per tool), compactions, and more — plus a coverage map and compact token count for each file the model has actually seen: startup context files, skills, and `read` results that survived compaction.
 
 ![show-context output](https://raw.githubusercontent.com/xl0/pi-lovely-dev-tools/master/assets/show-context.png)
 
