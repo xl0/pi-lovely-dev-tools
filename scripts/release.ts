@@ -139,8 +139,8 @@ Discard it, fix up, commit, and re-run:
 }
 
 console.log(`\n=== committing and tagging ${version} ===\n`)
-await $`git add CHANGELOG.md package.json`
-await $`git commit -m ${`chore(release): ${version}`}`
+// Pathspec commit: only these two files land in the release, whatever else is staged.
+await $`git commit -m ${`chore(release): ${version}`} -- CHANGELOG.md package.json`
 await $`git tag -a ${`v${version}`} -m ${`${PKG} ${version}`}`
 
 if (!push) {
