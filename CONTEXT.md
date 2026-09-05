@@ -60,6 +60,10 @@ _Avoid_: child session, backend session
 An execution-time UI adapter that delegates a **Nested Execution Session** tool's user interaction to the outer Pi command UI.
 _Avoid_: second TUI, nested terminal
 
+**Live Session Run**:
+A **Manual Tool Run** invoked with `--live` that executes the selected tool with the live session context, so session identity and lifecycle match the visible Pi session.
+_Avoid_: outer execution, live run
+
 ## Relationships
 
 - A **Manual Tool Runner** creates zero or more **Manual Tool Runs**.
@@ -72,12 +76,17 @@ _Avoid_: second TUI, nested terminal
 - Nested startup diagnostics are surfaced to help explain **Manual Tool Run** backend mismatches.
 - A **Manual Tool Run** uses exactly one **Nested Execution Session**.
 - A **Nested Execution Session** is single-use and must not be cached across **Manual Tool Runs**.
+- A **Live Session Run** uses its **Nested Execution Session** for definition resolution only.
 - A **Nested Execution Session** emits `session_shutdown` and awaits extension cleanup before its context is invalidated.
 - A **Nested Execution Session** does not persist session history; the outer session stores only the displayed **Manual Tool Run** entry.
 - A **Nested Execution Session** uses muted UI during startup and **Bridged Tool UI** during selected tool execution.
-- A manually run tool receives the **Nested Execution Session** context, not the outer command context; only UI interaction is bridged outward.
+- By default a manually run tool receives the **Nested Execution Session** context, not the outer command context; only UI interaction is bridged outward.
 - Side effects emitted through nested `pi.sendMessage` / `pi.sendUserMessage` stay inside the **Nested Execution Session** and do not affect the outer session.
-- Control-plane actions from a manually run tool affect only the **Nested Execution Session** or no-op; they must not control the outer Pi session.
+- Control-plane actions from a default manually run tool affect only the **Nested Execution Session** or no-op; they must not control the outer Pi session.
+- A **Live Session Run** executes the selected tool definition with the live session context, so session-affine tools observe the visible Pi session identity.
+- A **Live Session Run** still resolves the tool definition from its **Nested Execution Session**; Pi exposes no executable outer tool path, so the definition runs with a foreign context.
+- Control-plane actions from a **Live Session Run** can mutate the real Pi session.
+- A **Live Session Run** creates no durable outer bindings; abort reaches the tool only through its `signal` parameter, not through the live context's `signal`/`abort()`.
 - A **Manual Tool Run** passes an abort signal to the selected tool so long-running work can be cancelled.
 - An aborted **Manual Tool Run** is displayed as an error result and still hidden from LLM context.
 - Arguments for a **Manual Tool Run** are prepared and validated before execution; validation failure is displayed as an error result.

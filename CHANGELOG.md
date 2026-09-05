@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `/tool --live` runs the selected tool with the live session context for session-affine tools (e.g. Lovely Agents' `agent`, `task_list`, `task_output`). Default runs stay isolated in a Nested Execution Session.
+
 ## [0.3.5] - 2026-09-04
 
 ### Added

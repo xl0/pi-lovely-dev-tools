@@ -240,6 +240,13 @@ function flatToolArgs(parametersSchema: unknown, values: string[]): Record<strin
 	return args
 }
 
+const LIVE_FLAG = "--live"
+const LIVE_ITEM: AutocompleteItem = {
+	value: `${LIVE_FLAG} `,
+	label: LIVE_FLAG,
+	description: "Run with the live session context; can mutate the real session"
+}
+
 export function registerToolCommand(pi: ExtensionAPI) {
 	pi.registerEntryRenderer(RUN_TOOL_ENTRY_TYPE, (entry, _state, theme) => {
 		const data = isRunToolData(entry.data) ? entry.data : undefined
@@ -248,7 +255,8 @@ export function registerToolCommand(pi: ExtensionAPI) {
 			box.addChild(new Text("Tool run", 0, 0))
 			return box
 		}
-		const callLine = `Tool: ${theme.fg("toolTitle", theme.bold(`${data.toolName}(${formatToolArgs(data.toolArgs)})`))}`
+		const scope = data.live ? " (live session)" : ""
+		const callLine = `Tool${scope}: ${theme.fg("toolTitle", theme.bold(`${data.toolName}(${formatToolArgs(data.toolArgs)})`))}`
 		const output = resultText(data.result, data.imageFallbacks)
 		const body = output ? `${callLine}\n\n${theme.fg("toolOutput", output)}` : callLine
 		const box = new Box(1, 1, value => theme.bg(data.isError ? "toolErrorBg" : "toolSuccessBg", value))
@@ -267,13 +275,20 @@ export function registerToolCommand(pi: ExtensionAPI) {
 	})
 
 	pi.registerCommand("tool", {
-		description: "Run a tool. Usage: /tool [tool_name] [flat args...]",
+		description: "Run a tool. Usage: /tool [--live] [tool_name] [flat args...]",
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
-			if (/\s/.test(prefix)) return null
+			// Completion values replace the whole argument text, so tool items after the flag re-emit it.
+			const flag = prefix.startsWith(`${LIVE_FLAG} `) ? `${LIVE_FLAG} ` : ""
+			const query = prefix.slice(flag.length)
+			if (/\s/.test(query)) return null
 			const tools = [...pi.getAllTools()].sort((a: ToolInfo, b: ToolInfo) => a.name.localeCompare(b.name))
-			const filtered = fuzzyFilter(tools, prefix, tool => tool.name)
-			if (filtered.length === 0) return null
-			return filtered.map(tool => ({ value: `${tool.name} `, label: tool.name, description: tool.description.replace(/\s+/g, " ").trim() }))
+			const items: AutocompleteItem[] = fuzzyFilter(tools, query, tool => tool.name).map(tool => ({
+				value: `${flag}${tool.name} `,
+				label: tool.name,
+				description: tool.description.replace(/\s+/g, " ").trim()
+			}))
+			if (!flag && LIVE_FLAG.startsWith(query)) items.unshift(LIVE_ITEM)
+			return items.length > 0 ? items : null
 		},
 		async handler(args, ctx) {
 			if (!ctx.hasUI) {
@@ -291,6 +306,12 @@ export function registerToolCommand(pi: ExtensionAPI) {
 
 			const activeTools = new Set(pi.getActiveTools())
 			const parts = splitCommandArgs(args)
+			const live = parts[0] === LIVE_FLAG
+			if (live) parts.shift()
+			if (parts.includes(LIVE_FLAG)) {
+				ctx.ui.notify(`${LIVE_FLAG} must be the first argument.`, "warning")
+				return
+			}
 			const initialTool = parts[0] ? tools.find(tool => tool.name === parts[0]) : undefined
 			let initialToolQuery = parts[0] && !initialTool ? parts[0] : undefined
 			let selectedTool = initialTool
@@ -322,7 +343,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 						let backend: Awaited<ReturnType<typeof createToolBackend>> | undefined
 						let abortRequested = false
 						let doneCalled = false
-						let message = "Tool is running... Esc abort"
+						let message = live ? "Live session run — the tool can mutate the real session. Esc abort" : "Tool is running... Esc abort"
 						let partialResult: AgentToolResult<unknown> | undefined
 						const finish = (value: { result: AgentToolResult<unknown>; isError: boolean }) => {
 							if (doneCalled) return
@@ -339,7 +360,7 @@ export function registerToolCommand(pi: ExtensionAPI) {
 						void (async () => {
 							let outcome: Parameters<typeof finish>[0]
 							try {
-								backend = await createToolBackend(ctx, [...activeTools])
+								backend = await createToolBackend(ctx, [...activeTools], { live })
 								if (abortRequested) backend.abort()
 								let result = await backend.run(toolName, toolArgs, toolCallId, update => {
 									partialResult = update
@@ -415,7 +436,15 @@ export function registerToolCommand(pi: ExtensionAPI) {
 				} catch (error) {
 					ctx.ui.notify(`Could not save image fallback: ${error instanceof Error ? error.message : String(error)}`, "warning")
 				}
-				pi.appendEntry(RUN_TOOL_ENTRY_TYPE, { toolName, toolArgs, toolCallId, result, isError, imageFallbacks } satisfies RunToolData)
+				pi.appendEntry(RUN_TOOL_ENTRY_TYPE, {
+					toolName,
+					toolArgs,
+					toolCallId,
+					result,
+					isError,
+					imageFallbacks,
+					...(live ? { live: true as const } : {})
+				} satisfies RunToolData)
 				return
 			}
 		}

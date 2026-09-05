@@ -20,6 +20,7 @@ export type RunToolData = {
 	result: AgentToolResult<unknown>
 	isError: boolean
 	imageFallbacks?: ImageFallback[]
+	live?: boolean
 }
 
 export function isRunToolData(value: unknown): value is RunToolData {

@@ -29,7 +29,8 @@ function diagnosticsText(diagnostics: AgentSessionRuntimeDiagnostic[]) {
 	return diagnostics.length ? `\n\nNested diagnostics:\n${diagnostics.map(d => `- ${d.type}: ${d.message}`).join("\n")}` : ""
 }
 
-export async function createToolBackend(ctx: ExtensionCommandContext, activeTools: string[]) {
+export async function createToolBackend(ctx: ExtensionCommandContext, activeTools: string[], options: { live?: boolean } = {}) {
+	const liveCtx = options.live ? ctx : undefined
 	const parsed = parseArgs(process.argv.slice(2))
 	const extensionPaths = parsed.extensions ?? []
 	const resourceLoaderOptions = {
@@ -59,7 +60,10 @@ export async function createToolBackend(ctx: ExtensionCommandContext, activeTool
 				)
 			}
 			const args = prepareArgs(definition, toolArgs)
-			return definition.execute(toolCallId, args, abort.signal, onUpdate, created.session.extensionRunner.createContext())
+			// Live Session Runs execute the nested-resolved definition with the live session
+			// context so session-affine tools observe the visible Pi session.
+			// Pi exposes no executable tool path on the outer session (getAllTools is metadata only).
+			return definition.execute(toolCallId, args, abort.signal, onUpdate, liveCtx ?? created.session.extensionRunner.createContext())
 		},
 		abort() {
 			abort.abort()
