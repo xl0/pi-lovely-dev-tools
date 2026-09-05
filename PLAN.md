@@ -15,6 +15,7 @@ Agent Tool Policy hooks are deliberately bypassed - a manual run is the human's 
 
 - [x] `/tool`: selector, flat args, schema arg editor, focused pending UI with Esc abort
 - [x] `/tool` nested execution backend, incl. startup extension mirroring and graceful shutdown
+- [x] `/tool --live`: Live Session Runs for session-affine tools (nested-resolved definition, live context)
 - [x] `/tool` result rendering: partial updates, images, non-text blocks
 - [x] `/show-context`: Context Read Map and context token breakdown
 - [x] `/llm-stats`: per-call token usage and provider-side tool constraint annotations

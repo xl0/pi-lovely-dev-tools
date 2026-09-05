@@ -26,6 +26,10 @@ Run any tool yourself. The result is displayed for you to review, not sent to th
 - Positional args map onto the tool's top-level schema properties in order.
 - Partial updates stream while the tool runs; Esc aborts.
 - Inactive tools can still be run manually — active state only gates the agent's own calls.
+- `/tool --live` runs session-affine tools (e.g. Lovely Agents' `agent`, `task_list`,
+  `task_output`) against the live session instead of an isolated nested one.
+  Dangerous: the tool observes the real session identity and control-plane actions can
+  mutate the real session. Everything else stays isolated by default.
 
 ```text
 /tool

@@ -14,12 +14,15 @@ running through a nested SDK session.
   peer/dev dep for direct `validateToolArguments()` imports.
 - `extensions/lovely-dev-tools/`
   - `index.ts`: entrypoint, registers command modules.
-  - `entries.ts`: custom entry type constants, `/tool` entry data guard.
+  - `entries.ts`: custom entry type constants, `/tool` entry data guard
+    (`live` marks Live Session Runs).
   - `schema.ts`: JSON-schema helpers - defaults, enum/type display, coercion, arg formatting.
   - `arg-editor.ts`: schema-driven arg editor; depends only on extension UI plus tool
     name/description/schema, not the full command context.
-  - `tool-command.ts`: `/tool` selector, flat arg parsing, pending run component, result rendering.
-  - `tool-backend.ts`: single-use Nested Execution Session backend.
+  - `tool-command.ts`: `/tool [--live]` selector, flat arg parsing, pending run component,
+    result rendering.
+  - `tool-backend.ts`: single-use Nested Execution Session backend; Live Session Runs resolve
+    definitions there but execute with the live session context.
   - `show-sysprompt.ts`, `show-context.ts`, `llm-stats.ts`: the other three commands.
 
 All four commands wait for idle and append display-only custom entries.
@@ -27,14 +30,17 @@ Pi custom entries never enter LLM context.
 
 ## `/tool`
 
-`/tool [tool_name] [flat args...]`: searchable selector when no name given, inline arg editor when
-no flat args, then executes and appends one entry.
+`/tool [--live] [tool_name] [flat args...]`: searchable selector when no name given,
+inline arg editor when no flat args, then executes and appends one entry.
+`--live` performs a Live Session Run
+(session-affine tools observe the visible Pi session; control-plane actions can mutate it);
+default runs stay isolated in the Nested Execution Session.
 
 - selector search and `<tab>` autocomplete match tool names only; unknown names pre-seed the search
 - inactive tools are runnable; active/inactive only marks LLM availability
 - flat args map to top-level schema properties in schema order, shell-style quotes preserved
 - entry type `lovely-dev-tools.run-tool`, `data`: `toolName`, `toolArgs`, `toolCallId`, `result`,
-  `isError`, optional `imageFallbacks`
+  `isError`, optional `imageFallbacks`, optional `live`
 
 ### Argument editor
 
@@ -56,8 +62,9 @@ Startup extension mirroring parses `-e`/`--extension`/`--no-extensions` from Pi'
 `parseArgs(process.argv.slice(2))`.
 
 The backend resolves via `session.getToolDefinition()`, applies `prepareArguments`, validates with
-`validateToolArguments()`, then calls `definition.execute(...)` with a nested extension context and
-a sticky abort signal. Intentionally bypasses Agent Tool Policy hooks.
+`validateToolArguments()`, then calls `definition.execute(...)` with a nested extension context —
+or, for Live Session Runs, the live session context — and a sticky abort signal.
+Intentionally bypasses Agent Tool Policy hooks.
 
 - Esc aborts, even before execution starts; aborts and thrown errors become `isError: true` entries
 - disposal awaits nested `session_shutdown` handlers before invalidating the nested context;
